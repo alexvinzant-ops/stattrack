@@ -1,7 +1,9 @@
 /**
- * GCS Hoops Stats: backend (Google Apps Script).
+ * Team Stats (basketball): backend (Google Apps Script).
  *
- * This file is pasted into Extensions → Apps Script of a Google Sheet the coach owns.
+ * This file lives in Extensions → Apps Script of a Google Sheet the coach owns.
+ * Coaches who copy the shared template never open the editor: the "🏀 Team Stats"
+ * menu in the spreadsheet sets everything up and publishes the app (see setupApp).
  * All data lives in that Sheet. The web app runs as the coach, so parents never
  * get access to the Sheet itself. They can only record stats for the game they
  * have been assigned, through the actions below.
@@ -14,7 +16,7 @@
  *            Managing people and PINs is always coach-only.
  */
 
-const TEAM_DEFAULT = "GCS Boys' Basketball";
+const TEAM_DEFAULT = 'My Team';
 
 const TABLES = {
   Settings: ['Setting', 'Value'],
@@ -615,8 +617,20 @@ function ensureSetup_() {
   const needSettings = () => {
     const have = {};
     readTable_('Settings').forEach(r => { have[str_(r.Setting)] = true; });
-    return ['Team Name', 'Season', 'Coach PIN'].filter(k => !have[k]);
+    return ['Team Name', 'Season', 'Coach PIN', 'Sheet ID'].filter(k => !have[k]);
   };
+  // A copied spreadsheet (e.g. from a template, or last season's sheet) must not keep the
+  // original's PINs: give the copy a fresh coach PIN and clear the parents list.
+  if (!missing.length) {
+    const idRow = readTable_('Settings').find(r => str_(r.Setting) === 'Sheet ID');
+    if (idRow && str_(idRow.Value) && str_(idRow.Value) !== ss.getId()) {
+      withLock_(() => {
+        setSetting_('Coach PIN', randomPin_(6));
+        setSetting_('Sheet ID', ss.getId());
+        replaceRows_('Parents', []);
+      });
+    }
+  }
   if (missing.length || needSettings().length) {
     withLock_(() => {
       Object.keys(TABLES).forEach(name => {
@@ -630,6 +644,7 @@ function ensureSetup_() {
       const add = needSettings().map(k => {
         if (k === 'Team Name') return [k, TEAM_DEFAULT];
         if (k === 'Season') return [k, defaultSeason_()];
+        if (k === 'Sheet ID') return [k, ss.getId()];
         return [k, randomPin_(6)];
       });
       appendRows_('Settings', add);
@@ -748,4 +763,162 @@ function bool_(v, dflt) {
 
 function newId_(prefix) {
   return prefix + Utilities.getUuid().replace(/-/g, '').slice(0, 10);
+}
+
+// ---------------------------------------------------------------------------
+// One-button setup from the spreadsheet menu (no Apps Script editor needed)
+// ---------------------------------------------------------------------------
+
+const SCRIPT_API = 'https://script.googleapis.com/v1/projects/';
+const API_SETTINGS_URL = 'https://script.google.com/home/usersettings';
+
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('🏀 Team Stats')
+    .addItem('Set up my app (or publish updates)', 'setupApp')
+    .addItem('Show my app link and coach PIN', 'showAppInfo')
+    .addToUi();
+}
+
+/**
+ * Security: every public function can be called by web-app visitors (google.script.run), and the web
+ * app runs as the owner. These setup functions reveal the coach PIN, so they only work for the owner
+ * using the spreadsheet itself (anonymous visitors have no active-user email).
+ */
+function requireOwner_() {
+  let active = '', owner = '';
+  try { active = Session.getActiveUser().getEmail(); owner = Session.getEffectiveUser().getEmail(); } catch (e) { /* no identity */ }
+  if (!active || active !== owner) throw new Error('Only the owner of this spreadsheet can do that.');
+}
+
+/** Menu: create the tabs, publish the web app, and show the link + coach PIN. */
+function setupApp() {
+  requireOwner_();
+  const result = setupResult_();
+  showDialog_(result.ok ? appInfoHtml_(result) : setupProblemHtml_(result), result.ok ? 'Your app is ready' : 'One more step');
+}
+
+/** Never throws; returns what the dialog should show. Private: callers must check requireOwner_(). */
+function setupResult_() {
+  try {
+    ensureSetup_();
+    const url = deployWebApp_();
+    return { ok: true, url: url, pin: getSettings_().coachPin, teamName: getSettings_().teamName };
+  } catch (e) {
+    return { ok: false, apiOff: !!e.apiOff, message: String(e.message || e) };
+  }
+}
+
+/** Menu: show the link and PIN again. */
+function showAppInfo() {
+  requireOwner_();
+  ensureSetup_();
+  const url = savedAppUrl_();
+  if (!url) return showDialog_(setupProblemHtml_({ notYet: true }), 'Not set up yet');
+  const s = getSettings_();
+  showDialog_(appInfoHtml_({ url: url, pin: s.coachPin, teamName: s.teamName }), 'Your app');
+}
+
+/**
+ * Publishes (or re-publishes) the web app using the Apps Script API and returns its link.
+ * Reuses the existing web-app deployment so the link never changes.
+ */
+function deployWebApp_() {
+  const scriptId = ScriptApp.getScriptId();
+  const base = SCRIPT_API + scriptId;
+  const version = scriptApi_('post', base + '/versions', { description: 'Team Stats' });
+  const config = { versionNumber: version.versionNumber, manifestFileName: 'appsscript', description: 'Team Stats' };
+  const list = scriptApi_('get', base + '/deployments').deployments || [];
+  const existing = list.find(d => webAppUrl_(d) && /\/exec$/.test(webAppUrl_(d)));
+  const dep = existing
+    ? scriptApi_('put', base + '/deployments/' + existing.deploymentId, { deploymentConfig: config })
+    : scriptApi_('post', base + '/deployments', config);
+  const url = webAppUrl_(dep);
+  if (!url) throw new Error('Google published the app but did not return its link. Use "Show my app link" in a minute.');
+  PropertiesService.getScriptProperties().setProperty('appUrl:' + scriptId, url);
+  return url;
+}
+
+function webAppUrl_(dep) {
+  const web = (dep && dep.entryPoints || []).find(p => p.entryPointType === 'WEB_APP');
+  return (web && web.webApp && web.webApp.url) || '';
+}
+
+function savedAppUrl_() {
+  let url = PropertiesService.getScriptProperties().getProperty('appUrl:' + ScriptApp.getScriptId()) || '';
+  if (!url) { try { url = ScriptApp.getService().getUrl() || ''; } catch (e) { /* not deployed */ } }
+  return url;
+}
+
+function scriptApi_(method, url, body) {
+  const opts = { method: method, muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() } };
+  if (body) { opts.contentType = 'application/json'; opts.payload = JSON.stringify(body); }
+  const res = UrlFetchApp.fetch(url, opts);
+  const code = res.getResponseCode();
+  let json = {};
+  try { json = JSON.parse(res.getContentText() || '{}'); } catch (e) { /* not JSON */ }
+  if (code >= 200 && code < 300) return json;
+  const msg = (json.error && json.error.message) || ('Google returned error ' + code);
+  const err = new Error(msg);
+  err.apiOff = /has not enabled the Apps Script API|usersettings/i.test(msg);
+  throw err;
+}
+
+function showDialog_(html, title) {
+  SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput(html).setWidth(480).setHeight(520), title);
+}
+
+function esc_(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+const DIALOG_CSS_ = '<style>body{font:15px/1.45 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#141821;margin:0}' +
+  'h2{font-size:18px;margin:0 0 8px}.box{background:#eef2f8;border-radius:10px;padding:10px 12px;margin:8px 0}' +
+  'input{width:100%;box-sizing:border-box;padding:8px;border:1px solid #ccd3de;border-radius:8px;font-size:13px}' +
+  '.pin{font:800 26px ui-monospace,Menlo,monospace;letter-spacing:.15em}' +
+  '.btn{display:inline-block;background:#1c3d8c;color:#fff;border:0;border-radius:8px;padding:10px 14px;font-weight:700;text-decoration:none;cursor:pointer;font-size:15px}' +
+  '.btn.light{background:#fff;color:#1c3d8c;border:1px solid #ccd3de}ol{padding-left:20px;margin:6px 0}li{margin:4px 0}.muted{color:#5f6b7d;font-size:13px}</style>';
+
+function appInfoHtml_(r) {
+  return DIALOG_CSS_ +
+    '<h2>' + esc_(r.teamName) + ' stats app</h2>' +
+    '<div class="box"><b>App link</b> (for you and your parents)<input readonly value="' + esc_(r.url) + '" onclick="this.select()"></div>' +
+    '<p><a class="btn" href="' + esc_(r.url) + '" target="_blank">Open my app</a></p>' +
+    '<div class="box"><b>Your coach PIN</b><div class="pin">' + esc_(r.pin) + '</div>' +
+    '<div class="muted">Keep this to yourself. You can change it on the Settings tab.</div></div>' +
+    '<b>Next:</b><ol><li>Open the link on your phone, sign in with your PIN, and tap Share → Add to Home Screen.</li>' +
+    '<li><b>Roster</b> tab → Add many → paste your players.</li>' +
+    '<li><b>Games</b> tab → Add many → paste your schedule.</li>' +
+    '<li><b>Access</b> tab → add parents → tap <b>Invite</b> to send each one their link and PIN.</li></ol>' +
+    '<p class="muted">Find this again anytime: 🏀 Team Stats menu → Show my app link and coach PIN.</p>';
+}
+
+function setupProblemHtml_(r) {
+  if (r.notYet) {
+    return DIALOG_CSS_ + '<h2>Your app isn\'t set up yet</h2><p>Click <b>🏀 Team Stats → Set up my app</b> first.</p>';
+  }
+  const retry = '<p><button class="btn" id="go" onclick="retry()">I did it. Try again</button> <span id="msg" class="muted"></span></p>' +
+    '<script>function retry(){var b=document.getElementById("go");b.disabled=true;b.textContent="Setting up…";' +
+    'google.script.run.withSuccessHandler(function(r){if(r.ok){document.body.innerHTML=' + JSON.stringify(DIALOG_CSS_) + '+r.html;}' +
+    'else{b.disabled=false;b.textContent="Try again";document.getElementById("msg").textContent=r.message;}}).retrySetup_ui();}</script>';
+  if (r.apiOff) {
+    return DIALOG_CSS_ + '<h2>Turn on one Google switch</h2>' +
+      '<p>Google needs your OK before this sheet can publish your app. This is a one-time step.</p>' +
+      '<ol><li><a href="' + API_SETTINGS_URL + '" target="_blank"><b>Open this Google settings page</b></a> (opens a new tab).</li>' +
+      '<li>Click <b>Google Apps Script API</b> and switch it <b>On</b>.</li>' +
+      '<li>Come back to this window and click the button below.</li></ol>' + retry;
+  }
+  return DIALOG_CSS_ + '<h2>Almost there</h2>' +
+    '<p>Google didn\'t let the sheet publish the app by itself (' + esc_(r.message) + '). You can do it by hand in about a minute:</p>' +
+    '<ol><li>Click <b>Extensions → Apps Script</b>.</li>' +
+    '<li>Click the blue <b>Deploy</b> button → <b>New deployment</b>.</li>' +
+    '<li>Click the ⚙️ gear next to "Select type" → <b>Web app</b>.</li>' +
+    '<li>Set <b>Who has access</b> to <b>Anyone</b>, then click <b>Deploy</b> (and <b>Authorize</b> if asked).</li>' +
+    '<li>Come back here: <b>🏀 Team Stats → Show my app link and coach PIN</b>.</li></ol>' + retry;
+}
+
+/** Called by the dialog's retry button: returns ready-to-show HTML on success. */
+function retrySetup_ui() {
+  requireOwner_();
+  const r = setupResult_();
+  return r.ok ? { ok: true, html: appInfoHtml_(r).replace(DIALOG_CSS_, '') } : { ok: false, message: r.apiOff ? 'Still off. Make sure the switch says On, then try again.' : r.message };
 }

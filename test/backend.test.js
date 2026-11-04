@@ -46,7 +46,7 @@ test('parents get a PIN, can sign in, and are not allowed coach actions', () => 
   const { pat } = seed(t);
   assert.match(pat.pin, /^[1-9]\d{3}$/);
   assert.deepEqual(t.call(pat.pin, 'me'), {
-    role: 'scorer', id: pat.id, name: 'Pat Parent', teamName: "GCS Boys' Basketball",
+    role: 'scorer', id: pat.id, name: 'Pat Parent', teamName: 'My Team',
     perms: { trackAny: false, fixStats: true, viewStats: false, manage: false, viewOwn: false },
     players: [],
   });
@@ -297,4 +297,89 @@ test('player-parents keep their own record without touching official stats', () 
   // Final games close the personal record too.
   t.coach('setStatus', { gameId: g1.id, status: 'final' });
   assert.throws(() => t.call(sam.pin, 'record', { gameId: g1.id, mode: 'personal', events: [ev(ava.id, 'REB')] }), /final/);
+});
+
+// ---- One-button setup from the spreadsheet menu --------------------------------------------
+
+function scriptApiFake(state) {
+  return (url, o) => {
+    if (state.apiOff) return { code: 403, body: { error: { message: 'User has not enabled the Apps Script API. Enable it by visiting https://script.google.com/home/usersettings then retry.' } } };
+    if (url.endsWith('/versions') && o.method === 'post') return { code: 200, body: { versionNumber: ++state.version } };
+    if (url.endsWith('/deployments') && o.method === 'get') return { code: 200, body: { deployments: state.deployments } };
+    if (url.endsWith('/deployments') && o.method === 'post') {
+      const d = { deploymentId: 'dep1', entryPoints: [{ entryPointType: 'WEB_APP', webApp: { url: 'https://script.google.com/macros/s/dep1/exec' } }] };
+      state.deployments.push(d);
+      return { code: 200, body: d };
+    }
+    if (/\/deployments\/dep1$/.test(url) && o.method === 'put') return { code: 200, body: state.deployments.find(d => d.deploymentId === 'dep1') };
+    return { code: 404, body: { error: { message: 'not found' } } };
+  };
+}
+
+test('menu setup publishes the app once and shows the link and coach PIN', () => {
+  const state = { version: 0, deployments: [{ deploymentId: 'HEAD', entryPoints: [{ entryPointType: 'WEB_APP', webApp: { url: 'https://script.google.com/macros/s/x/dev' } }] }] };
+  const gas = createGas({ fetch: scriptApiFake(state), appUrl: null });
+  gas.context.onOpen();
+  assert.deepEqual(gas.dialogs[0].menu.map(m => m[1]), ['setupApp', 'showAppInfo']);
+
+  gas.context.setupApp();
+  const shown = gas.dialogs.pop();
+  assert.equal(shown.title, 'Your app is ready');
+  assert.match(shown.html, /macros\/s\/dep1\/exec/);
+  const pin = gas.sheets.Settings.data.find(r => r[0] === 'Coach PIN')[1];
+  assert.match(shown.html, new RegExp(String(pin)));
+  assert.ok(gas.sheets.Players && gas.sheets.Games, 'tabs created');
+
+  // Running it again publishes an update to the SAME link (no second deployment).
+  gas.context.setupApp();
+  assert.equal(state.deployments.length, 2, 'HEAD + one web app deployment');
+  assert.ok(gas.fetches.some(f => f.method === 'put' && f.body.deploymentConfig.versionNumber === 2));
+  gas.context.showAppInfo();
+  assert.match(gas.dialogs.pop().html, /dep1\/exec/);
+});
+
+test('menu setup explains the Apps Script API switch, and retry works after it is turned on', () => {
+  const state = { version: 0, deployments: [], apiOff: true };
+  const gas = createGas({ fetch: scriptApiFake(state), appUrl: null });
+  gas.context.setupApp();
+  const shown = gas.dialogs.pop();
+  assert.equal(shown.title, 'One more step');
+  assert.match(shown.html, /usersettings/);
+  assert.equal(gas.context.retrySetup_ui().ok, false);
+  state.apiOff = false;
+  const r = gas.context.retrySetup_ui();
+  assert.equal(r.ok, true);
+  assert.match(r.html, /dep1\/exec/);
+});
+
+test('web-app visitors cannot call the setup functions (they reveal the coach PIN)', () => {
+  const gas = createGas({ fetch: scriptApiFake({ version: 0, deployments: [] }), activeUser: '' });
+  gas.context.setup();
+  for (const fn of ['setupApp', 'showAppInfo', 'retrySetup_ui']) {
+    assert.throws(() => gas.context[fn](), /Only the owner/, fn);
+  }
+  assert.equal(gas.dialogs.length, 0);
+  assert.equal(gas.fetches.length, 0);
+  gas.users.active = 'someone-else@example.com';
+  assert.throws(() => gas.context.retrySetup_ui(), /Only the owner/);
+});
+
+test('a copied spreadsheet gets its own coach PIN and no parents', () => {
+  const original = createGas({ sheetId: 'sheet-A' });
+  original.context.setup();
+  original.api({ pin: original.sheets.Settings.data.find(r => r[0] === 'Coach PIN')[1], action: 'saveParent', data: { name: 'Pat' } });
+  const oldPin = String(original.sheets.Settings.data.find(r => r[0] === 'Coach PIN')[1]);
+  // Same data opened as a different spreadsheet (File → Make a copy).
+  const copy = createGas({ sheetId: 'sheet-B' });
+  for (const k of Object.keys(original.sheets)) copy.sheets[k] = { ...original.sheets[k], data: JSON.parse(JSON.stringify(original.sheets[k].data)) };
+  for (const k of Object.keys(copy.sheets)) Object.setPrototypeOf(copy.sheets[k], Object.getPrototypeOf(original.sheets[k]));
+  copy.context.setup();
+  const newPin = String(copy.sheets.Settings.data.find(r => r[0] === 'Coach PIN')[1]);
+  assert.notEqual(newPin, oldPin);
+  assert.equal(copy.sheets.Settings.data.find(r => r[0] === 'Sheet ID')[1], 'sheet-B');
+  assert.equal(copy.sheets.Parents.data.slice(1).filter(r => r.some(v => v !== '')).length, 0);
+  assert.throws(() => copy.api({ pin: oldPin, action: 'me' }), /AUTH/);
+  // Opening the original again changes nothing.
+  original.context.setup();
+  assert.equal(String(original.sheets.Settings.data.find(r => r[0] === 'Coach PIN')[1]), oldPin);
 });
