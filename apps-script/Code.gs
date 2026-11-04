@@ -21,13 +21,13 @@ const TEAM_DEFAULT = 'My Team';
 const TABLES = {
   Settings: ['Setting', 'Value'],
   Players: ['ID', 'Number', 'Name', 'Active'],
-  Parents: ['ID', 'Name', 'PIN', 'Active', 'Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players'],
+  Parents: ['ID', 'Name', 'PIN', 'Active', 'Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players', 'Email', 'Phone', 'Invited'],
   Games: ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes', 'Opp Roster'],
   // Book is blank for official stats, or a parent's ID for that parent's own record of their players.
   Events: ['ID', 'Game ID', 'Player ID', 'Stat', 'Delta', 'Time', 'Entered By', 'Book'],
 };
 // Columns stored as plain text so Sheets doesn't turn PINs, dates, or jersey "00" into numbers/dates.
-const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3, 9], Games: [2, 8] };
+const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3, 9, 11, 12, 13], Games: [2, 8] };
 
 // Base counters. Everything else (points, FG, %) is derived.
 const STATS = ['GP', 'FG2M', 'FG2A', 'FG3M', 'FG3A', 'FTM', 'FTA', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PF', 'OPP'];
@@ -98,6 +98,7 @@ const ACTIONS = {
   deleteGame: { need: 'coach', run: deleteGame_ },
   saveParent: { need: 'coach', run: saveParent_ },
   deleteParent: { need: 'coach', run: deleteParent_ },
+  emailInvite: { need: 'coach', run: emailInvite_ },
   saveSettings: { need: 'coach', run: saveSettings_ },
   writeReport: { need: 'coach', run: writeReport_ },
 };
@@ -415,19 +416,53 @@ function saveParent_(who, d) {
   const validPlayers = {};
   listPlayers_().forEach(p => { validPlayers[p.id] = true; });
   const players = (Array.isArray(d.players) ? d.players : []).map(str_).filter(id => validPlayers[id]);
-  const obj = { Name: name, Active: active, Players: players.join(',') };
+  const email = clean_(d.email, 100).toLowerCase();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("That email address doesn't look right.");
+  const phone = cleanPhone_(d.phone);
+  const obj = { Name: name, Active: active, Players: players.join(','), Email: email, Phone: phone };
   Object.keys(PERMS).forEach(k => { obj[PERMS[k][0]] = k in perms ? !!perms[k] : PERMS[k][1]; });
   withLock_(() => {
     if (d.id) {
       const row = findRow_('Parents', d.id);
       obj.ID = row.ID;
       obj.PIN = d.newPin ? randomPin_(4, takenPins_()) : str_(row.PIN);
+      // A new PIN or a new address means the old invite is out of date.
+      obj.Invited = d.newPin || email !== str_(row.Email).toLowerCase() ? '' : str_(row.Invited);
       writeRow_('Parents', row._row, obj);
     } else {
       obj.ID = newId_('U');
       obj.PIN = randomPin_(4, takenPins_());
       appendRows_('Parents', [TABLES.Parents.map(h => obj[h])]);
     }
+  });
+  return all_(who);
+}
+
+function cleanPhone_(v) {
+  const raw = str_(v);
+  if (!raw) return '';
+  const digits = raw.replace(/[^\d+]/g, '');
+  if (digits.replace(/\D/g, '').length < 10) throw new Error("That phone number doesn't look right. Include the area code.");
+  return digits.slice(0, 16);
+}
+
+/**
+ * Emails an invite from the coach's own Gmail. The message is written by the page, but it can only
+ * go to the address saved for that person, so this can't be used to email anyone else.
+ */
+function emailInvite_(who, d) {
+  const row = findRow_('Parents', d.id);
+  const to = str_(row.Email);
+  if (!to) throw new Error('Add an email address for this person first.');
+  const subject = clean_(d.subject, 120) || (getSettings_().teamName + ' stats app');
+  const body = str_(d.body).slice(0, 4000);
+  if (!body) throw new Error('The message is empty.');
+  if (body.indexOf(str_(row.PIN)) < 0) throw new Error('The message is missing their PIN.');
+  MailApp.sendEmail({ to: to, subject: subject, body: body, name: getSettings_().teamName });
+  withLock_(() => {
+    const fresh = findRow_('Parents', d.id);
+    fresh.Invited = new Date().toISOString();
+    writeRow_('Parents', fresh._row, fresh);
   });
   return all_(who);
 }
@@ -510,7 +545,10 @@ function perms_(r) {
 }
 
 function parent_(r) {
-  return { id: str_(r.ID), name: str_(r.Name), pin: str_(r.PIN), active: bool_(r.Active, true), perms: perms_(r), players: idList_(r.Players) };
+  return {
+    id: str_(r.ID), name: str_(r.Name), pin: str_(r.PIN), active: bool_(r.Active, true), perms: perms_(r), players: idList_(r.Players),
+    email: str_(r.Email), phone: str_(r.Phone), invited: str_(r.Invited),
+  };
 }
 
 function idList_(v) {

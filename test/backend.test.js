@@ -234,7 +234,7 @@ test('older spreadsheets get the new columns added', () => {
   const again = createGas();
   for (const k of Object.keys(gas.sheets)) again.sheets[k] = gas.sheets[k];
   again.context.setup();
-  assert.deepEqual(gas.sheets.Parents.data[0].slice(4), ['Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players']);
+  assert.deepEqual(gas.sheets.Parents.data[0].slice(4), ['Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players', 'Email', 'Phone', 'Invited']);
   assert.equal(gas.sheets.Events.data[0][7], 'Book');
   assert.equal(gas.sheets.Games.data[0][7], 'Opp Roster');
   const me = again.api({ pin: '5555', action: 'me' });
@@ -382,4 +382,41 @@ test('a copied spreadsheet gets its own coach PIN and no parents', () => {
   // Opening the original again changes nothing.
   original.context.setup();
   assert.equal(String(original.sheets.Settings.data.find(r => r[0] === 'Coach PIN')[1]), oldPin);
+});
+
+test('coach can email an invite, only to the address saved for that person', () => {
+  const t = setup();
+  let all = t.coach('saveParent', { name: 'Jamie Lee', email: 'Jamie@Example.com', phone: '(555) 123-4567' });
+  let jamie = all.parents[0];
+  assert.equal(jamie.email, 'jamie@example.com');
+  assert.equal(jamie.phone, '5551234567');
+  assert.equal(jamie.invited, '');
+  assert.throws(() => t.coach('saveParent', { name: 'X', email: 'not-an-email' }), /email/);
+  assert.throws(() => t.coach('saveParent', { name: 'X', phone: '12345' }), /phone/);
+
+  const body = 'Hi Jamie! App: https://x/exec Your PIN: ' + jamie.pin;
+  all = t.coach('emailInvite', { id: jamie.id, subject: 'Team stats app', body, to: 'attacker@evil.com' });
+  assert.equal(t.gas.mails.length, 1);
+  assert.equal(t.gas.mails[0].to, 'jamie@example.com', 'ignores any other address');
+  assert.equal(t.gas.mails[0].body, body);
+  jamie = all.parents[0];
+  assert.ok(jamie.invited, 'marked as invited');
+  assert.throws(() => t.coach('emailInvite', { id: jamie.id, body: 'no pin here' }), /PIN/);
+
+  // Editing without changes keeps the invited mark; a new PIN clears it (old invite is out of date).
+  all = t.coach('saveParent', { id: jamie.id, name: jamie.name, email: jamie.email, phone: jamie.phone });
+  assert.ok(all.parents[0].invited);
+  all = t.coach('saveParent', { id: jamie.id, name: jamie.name, email: jamie.email, phone: jamie.phone, newPin: true });
+  assert.equal(all.parents[0].invited, '');
+
+  // Parents can't send invites or see contact details.
+  const other = t.coach('saveParent', { name: 'Sam', email: 'sam@example.com' }).parents.find(p => p.name === 'Sam');
+  assert.throws(() => t.call(other.pin, 'emailInvite', { id: jamie.id, body }), /Only the coach/);
+  t.coach('saveParent', { id: other.id, name: 'Sam', email: 'sam@example.com', perms: { viewStats: true } });
+  const seen = t.call(other.pin, 'all').parents;
+  assert.ok(seen.every(p => p.email === undefined && p.phone === undefined));
+
+  // A person without an email can't be emailed.
+  const noEmail = t.coach('saveParent', { name: 'Kim' }).parents.find(p => p.name === 'Kim');
+  assert.throws(() => t.coach('emailInvite', { id: noEmail.id, body: 'PIN ' + noEmail.pin }), /email address/);
 });

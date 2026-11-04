@@ -45,8 +45,17 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.click('[data-act=tab][data-tab=parents]');
     await coach.click('[data-act=editParent]:has-text("Add person")');
     await coach.fill('input[name=name]', 'Jamie (Ava’s mom)');
+    await coach.fill('input[name=email]', 'jamie@example.com');
+    await coach.fill('input[name=phone]', '555-123-4567');
     await coach.click('form[data-form=parent] button[type=submit]');
-    await coach.waitForSelector('.pin');
+    // New person with contact info → invite opens right away.
+    await coach.waitForSelector('text=Invite Jamie');
+    assert.equal(await coach.getAttribute('a.btn:has-text("Text to (555) 123-4567")', 'href').then(h => h.startsWith('sms:5551234567?&body=')), true);
+    await coach.click('[data-act=emailInvite]');
+    await coach.waitForSelector('text=Email sent ✓');
+    await shot(coach, '02a-invite-sent');
+    await coach.click('.modal [data-act=closeModal]');
+    await coach.waitForSelector('.list-item:has-text("Jamie") .chip.win');
     const parentPin = (await coach.textContent('.pin')).trim();
     // A second parent who may only view season stats.
     await coach.click('[data-act=editParent]:has-text("Add person")');

@@ -87,7 +87,12 @@ On the Access tab, tap **Edit** on a parent and tick their player(s) under **The
 - Turn on **See their players' stats** if you want them to be able to look up their player's official numbers.
 
 ### Inviting parents
-On the Access tab, tap **Invite** next to a person. You get a ready-to-send message with the app link, their PIN, their games, and five simple steps. Tap **Copy** (or **Text it** on a phone). Parents can also tap **First time? How it works** on the sign-in screen.
+Add a parent's **email** and/or **cell number** when you add them (Access → + Add person), and their invite opens right away:
+- **Email it** sends the invite from your own Gmail, automatically. **Email invites (N)** on the Access tab emails everyone who hasn't been invited yet.
+- **Text to (number)** opens Messages on your phone with the number and message filled in. Just tap Send. (Google can't send texts by itself.)
+- Each person shows **Invited** or **Not invited yet**. Giving someone a new PIN resets this so you remember to send the new one.
+
+You can always tap **Invite** next to a person later. You get a ready-to-send message with the app link, their PIN, their games, and five simple steps. Tap **Copy** (or **Text it** on a phone). Parents can also tap **First time? How it works** on the sign-in screen.
 
 Want a shorter link? Make a free one at [tinyurl.com](https://tinyurl.com) with a custom name (e.g. `tinyurl.com/gcs-hoops`) that points to your app link.
 
