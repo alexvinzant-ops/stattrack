@@ -161,8 +161,30 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await tap(3, 'FM');
     await parent.waitForSelector('.sync:text("All saved")');
 
+    // Second quarter
+    await parent.click('[data-act=period][data-n="2"]');
+    await parent.waitForSelector('.period-seg button.on:text-is("Q2")');
+    await tap(5, '2M');
+    await tap(0, 'PF');
+    assert.match(await parent.textContent('.team-fouls'), /Q2: .* 1/);
+    // Overtime: OT, then 2OT appears.
+    await parent.click('[data-act=period][data-n="5"]');
+    await parent.waitForSelector('[data-act=period][data-n="6"]:text-is("2OT")');
+    await tap(11, 'REB');
+    await parent.waitForSelector('.end-game');
+    await shot(parent, '04c-quarters');
+    await parent.waitForSelector('.sync:text("All saved")');
     await parent.click('[data-act=gameTab][data-tab=box]');
     await parent.waitForSelector('tr.total');
+    const byQ = await parent.$$eval('.card:has(h2:text-is("By quarter")) tbody tr', trs => trs.map(tr => Array.from(tr.cells).map(c => c.textContent)));
+    assert.deepEqual(byQ[0].slice(1), ['9', '2', '0', '0', '0', '11'], 'Q1-Q4, OT, total');
+    assert.deepEqual(byQ[1].slice(1), ['8', '0', '0', '0', '0', '8']);
+    // Overtime-only box score: just Dev's rebound.
+    await parent.click('[data-act=boxFilter][data-f=ot]');
+    const otRows = await parent.$$eval('.card:has(.box-filter) tbody tr:not(.total) td:first-child', tds => tds.map(t => t.textContent));
+    assert.deepEqual(otRows, ['#11Dev Forward']);
+    await shot(parent, '05b-ot-box');
+    await parent.click('[data-act=boxFilter][data-f=all]');
     await shot(parent, '05-box');
     // Fix a stat in the box score
     await parent.click('tr[data-act=editLine]:has-text("Ben Center")');
@@ -201,7 +223,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await shot(coach, '06-season');
     await coach.waitForSelector('text=Us vs. opponents');
     const oppFg = await coach.$$eval('tr:has(td:text-is("FG%")) td', tds => tds.map(t => t.textContent));
-    assert.deepEqual(oppFg, ['FG%', '75.0', '50.0']);
+    assert.deepEqual(oppFg, ['FG%', '80.0', '50.0']);
     await coach.click('[data-act=seasonMode][data-m=tot]');
     await coach.click('tr[data-act=openPlayer]:has-text("Ava Guard")');
     await coach.waitForSelector('text=Game log');

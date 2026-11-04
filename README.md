@@ -106,10 +106,11 @@ Want a shorter link? Make a free one at [tinyurl.com](https://tinyurl.com) with 
    - Use **+1 / +2 / +3** under the opponent's score to keep their points.
    - Tapped the wrong thing? Hit **UNDO** on the pop-up, or **Undo** next to the play in *Recent plays*.
    - Player tiles show points and fouls. Fouls turn orange at 4 and red at 5.
-4. The dot at the top shows **All saved** (green), **Saving…** (yellow), or **Offline · N waiting** (red). Offline taps are kept on the phone and sent automatically once there's a connection.
-5. **Opponent stats (optional):** tap the opponent's name in the toggle above the player tiles. Tap **Opponent numbers** to enter their jerseys (`4, 12 Smith, 23`), then track them exactly like your players. Use the **TEAM** tile for anything you can't attribute to a number. If you only care about their score, ignore all this and use the **+1 / +2 / +3** buttons.
-6. Open **Box score** and tap any player to fix a number with − / +. The opponent has its own box score below yours.
-7. When the game ends, tap **Game over: submit final stats**. The game then closes on the parent's phone.
+4. **Quarters:** tap **Q1 / Q2 / Q3 / Q4 / OT** under the score when the quarter changes (after OT, a **2OT** button appears, and so on). Every stat is recorded with its quarter. Team fouls for the current quarter show right there (handy for the bonus), and the box score shows scoring and fouls **by quarter**.
+5. The dot at the top shows **All saved** (green), **Saving…** (yellow), or **Offline · N waiting** (red). Offline taps are kept on the phone and sent automatically once there's a connection.
+6. **Opponent stats (optional):** tap the opponent's name in the toggle above the player tiles. Tap **Opponent numbers** to enter their jerseys (`4, 12 Smith, 23`), then track them exactly like your players. Use the **TEAM** tile for anything you can't attribute to a number. If you only care about their score, ignore all this and use the **+1 / +2 / +3** buttons.
+7. Open **Box score** and tap any player to fix a number with − / +. The opponent has its own box score below yours. Use **Game / Q1–Q4 / OT** at the top of the box score to see one quarter or overtime on its own.
+8. When the game ends, tap **Game over: submit final stats** at the bottom of the Track screen (the coach sees **End game (mark final)**). The game then closes on the parent's phone.
 
 ### Reviewing (Coach, and anyone with *See season stats*)
 - **Season tab:** record, scoring, leaders, and the full player table. Switch between **Per game** and **Totals**, tap a column to sort, and tap a player for their game log. **Us vs. opponents** compares shooting, rebounds, turnovers, etc. per game, using only games where opponent stats were kept.
