@@ -431,7 +431,8 @@ function topBar(title, left, right, tabs) {
 // Login
 // ---------------------------------------------------------------------------
 function viewLogin() {
-  const dots = Array.from({ length: Math.max(4, S.pinEntry.length) }, (_, i) => '<span class="' + (i < S.pinEntry.length ? 'on' : '') + '"></span>').join('');
+  // One dot per digit typed. PINs can be any length from 4 to 8, so don't hint at a fixed length.
+  const dots = S.pinEntry.length ? Array.from({ length: S.pinEntry.length }, () => '<span class="on"></span>').join('') : '<span class="muted small">Enter your PIN</span>';
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'];
   return '<div class="login">' +
     '<div class="logo">🏀</div>' +
