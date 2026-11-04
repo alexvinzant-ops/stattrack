@@ -19,12 +19,13 @@ const TEAM_DEFAULT = "GCS Boys' Basketball";
 const TABLES = {
   Settings: ['Setting', 'Value'],
   Players: ['ID', 'Number', 'Name', 'Active'],
-  Parents: ['ID', 'Name', 'PIN', 'Active', 'Track Any', 'Fix Stats', 'View Stats', 'Manage'],
+  Parents: ['ID', 'Name', 'PIN', 'Active', 'Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players'],
   Games: ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes', 'Opp Roster'],
-  Events: ['ID', 'Game ID', 'Player ID', 'Stat', 'Delta', 'Time', 'Entered By'],
+  // Book is blank for official stats, or a parent's ID for that parent's own record of their players.
+  Events: ['ID', 'Game ID', 'Player ID', 'Stat', 'Delta', 'Time', 'Entered By', 'Book'],
 };
 // Columns stored as plain text so Sheets doesn't turn PINs, dates, or jersey "00" into numbers/dates.
-const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3], Games: [2, 8] };
+const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3, 9], Games: [2, 8] };
 
 // Base counters. Everything else (points, FG, %) is derived.
 const STATS = ['GP', 'FG2M', 'FG2A', 'FG3M', 'FG3A', 'FTM', 'FTA', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PF', 'OPP'];
@@ -40,8 +41,12 @@ const OPP_ID = /^opp:(\d{1,3}|team)$/;
 //   fixStats  : change numbers in a box score (undoing their own taps is always allowed)
 //   viewStats : read-only season stats, player game logs and every box score
 //   manage    : add/edit players and games, assign stat keepers, mark games final (assistant coach)
-const PERMS = { trackAny: ['Track Any', false], fixStats: ['Fix Stats', true], viewStats: ['View Stats', false], manage: ['Manage', false] };
-const ALL_PERMS = { trackAny: true, fixStats: true, viewStats: true, manage: true };
+//   viewOwn   : see official stats (season + game log) for the players assigned to them
+const PERMS = {
+  trackAny: ['Track Any', false], fixStats: ['Fix Stats', true], viewStats: ['View Stats', false],
+  manage: ['Manage', false], viewOwn: ['See Own Players', false],
+};
+const ALL_PERMS = { trackAny: true, fixStats: true, viewStats: true, manage: true, viewOwn: true };
 const MAX_FAILED_LOGINS = 30; // across everyone, per 15 minutes
 
 // ---------------------------------------------------------------------------
@@ -108,7 +113,7 @@ function authenticate_(pin) {
 
   if (pin === normPin_(getSettings_().coachPin)) return { role: 'coach', id: 'coach', name: 'Coach', perms: ALL_PERMS };
   const parent = readTable_('Parents').find(r => bool_(r.Active, true) && normPin_(r.PIN) === pin);
-  if (parent) return { role: 'scorer', id: str_(parent.ID), name: str_(parent.Name), perms: perms_(parent) };
+  if (parent) return { role: 'scorer', id: str_(parent.ID), name: str_(parent.Name), perms: perms_(parent), players: idList_(parent.Players) };
 
   cache.put('pinFails', String(fails + 1), 900);
   Utilities.sleep(1000);
@@ -141,27 +146,69 @@ function takenPins_() {
 // ---------------------------------------------------------------------------
 
 function me_(who) {
-  return { role: who.role, id: who.id, name: who.name, teamName: getSettings_().teamName, perms: who.perms };
+  return { role: who.role, id: who.id, name: who.name, teamName: getSettings_().teamName, perms: who.perms, players: who.players || [] };
 }
 
 function scorerHome_(who) {
-  const games = listGames_()
-    .filter(g => g.status !== 'final' && (g.scorerId === who.id || who.perms.trackAny || who.perms.manage))
-    .sort((a, b) => a.date.localeCompare(b.date));
-  return { me: me_(who), games: games };
+  const all = listGames_().sort((a, b) => a.date.localeCompare(b.date));
+  const games = all.filter(g => g.status !== 'final' && (g.scorerId === who.id || who.perms.trackAny || who.perms.manage));
+  const mine = myPlayers_(who);
+  const out = {
+    me: me_(who),
+    games: games,
+    // Games where a player-parent can keep their own record of their players.
+    playerGames: mine.length ? all.filter(g => g.status !== 'final') : [],
+    myPlayers: mine,
+  };
+  if (mine.length && who.perms.viewOwn) {
+    // Official numbers for their players only.
+    const ids = {};
+    mine.forEach(p => { ids[p.id] = true; });
+    const boxes = boxes_();
+    out.myStats = all.filter(g => boxes[g.id]).map(g => {
+      const box = {};
+      Object.keys(boxes[g.id]).forEach(k => { if (ids[k]) box[k] = boxes[g.id][k]; });
+      return { game: { id: g.id, date: g.date, opponent: g.opponent, location: g.location, status: g.status }, box: box };
+    }).filter(x => Object.keys(x.box).length);
+  }
+  return out;
+}
+
+function myPlayers_(who) {
+  if (!who.players || !who.players.length) return [];
+  return listPlayers_().filter(p => who.players.indexOf(p.id) >= 0);
+}
+
+/** A player-parent's own record of their players in one game (never the official box score). */
+function getPersonalGame_(who, g) {
+  if (!who.players || !who.players.length) throw new Error('No players are assigned to you.');
+  if (g.status === 'final') throw new Error('This game is final.');
+  const box = bookBoxes_(g.id)[who.id] || {};
+  return { game: g, box: box, players: myPlayers_(who), canTrack: true, canFix: true, mode: 'personal' };
 }
 
 function getGame_(who, data) {
   const g = findGame_(data.gameId);
+  if (data.mode === 'personal') return getPersonalGame_(who, g);
   const track = canTrack_(who, g);
   if (!track && !(who.perms.viewStats || who.perms.manage)) checkGameAccess_(who, g); // throws the reason
   const box = boxes_(g.id)[g.id] || {};
   const players = listPlayers_().filter(p => p.active || box[p.id]);
-  return {
+  const out = {
     game: g, box: box, players: players,
     canTrack: track,
     canFix: track && !!(who.perms.fixStats || who.perms.manage),
   };
+  if (who.role === 'coach') out.parentBooks = parentBooks_(g.id);
+  return out;
+}
+
+/** Coach-only: each player-parent's own record for one game, for comparing with the official stats. */
+function parentBooks_(gameId) {
+  const names = {};
+  readTable_('Parents').forEach(r => { names[str_(r.ID)] = str_(r.Name); });
+  const books = bookBoxes_(gameId);
+  return Object.keys(books).map(id => ({ id: id, name: names[id] || 'Removed parent', box: books[id] }));
 }
 
 function record_(who, data) {
@@ -169,10 +216,19 @@ function record_(who, data) {
   if (!Array.isArray(events) || !events.length) return { saved: 0 };
   if (events.length > 200) throw new Error('Too many plays in one request.');
 
+  const personal = data.mode === 'personal';
   return withLock_(() => {
     const g = findGame_(data.gameId);
-    checkGameAccess_(who, g);
-    if (!(who.perms.fixStats || who.perms.manage) && events.some(e => e.fix)) {
+    let allowed = null;
+    if (personal) {
+      if (!who.players || !who.players.length) throw new Error('No players are assigned to you.');
+      if (g.status === 'final') throw new Error('This game is final.');
+      allowed = {};
+      who.players.forEach(id => { allowed[id] = true; });
+    } else {
+      checkGameAccess_(who, g);
+    }
+    if (!personal && !(who.perms.fixStats || who.perms.manage) && events.some(e => e.fix)) {
       throw new Error("You don't have permission to change box score numbers.");
     }
     const playerIds = {};
@@ -190,15 +246,17 @@ function record_(who, data) {
       const delta = Number(e.delta);
       if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 10) throw new Error('Bad stat change.');
       let playerId = str_(e.playerId);
-      if (stat === 'OPP') playerId = '';
+      if (allowed) {
+        if (!allowed[playerId] || !playerIds[playerId] || stat === 'OPP') throw new Error('You can only keep stats for your assigned players.');
+      } else if (stat === 'OPP') playerId = '';
       else if (OPP_ID.test(playerId)) { if (stat === 'GP') throw new Error('Bad stat change.'); }
       else if (!playerIds[playerId]) throw new Error('Unknown player.');
       const time = isNaN(Date.parse(e.time)) ? new Date().toISOString() : new Date(e.time).toISOString();
-      rows.push([id, g.id, playerId, stat, delta, time, who.name]);
+      rows.push([id, g.id, playerId, stat, delta, time, who.name, personal ? who.id : '']);
       seen[id] = true;
     });
     appendRows_('Events', rows);
-    if (rows.length && g.status === 'scheduled') updateGameField_(g.id, 'Status', 'live');
+    if (!personal && rows.length && g.status === 'scheduled') updateGameField_(g.id, 'Status', 'live');
     return { saved: rows.length };
   });
 }
@@ -352,7 +410,10 @@ function saveParent_(who, d) {
   if (!name) throw new Error('Parent name is required.');
   const active = d.active !== false;
   const perms = d.perms || {};
-  const obj = { Name: name, Active: active };
+  const validPlayers = {};
+  listPlayers_().forEach(p => { validPlayers[p.id] = true; });
+  const players = (Array.isArray(d.players) ? d.players : []).map(str_).filter(id => validPlayers[id]);
+  const obj = { Name: name, Active: active, Players: players.join(',') };
   Object.keys(PERMS).forEach(k => { obj[PERMS[k][0]] = k in perms ? !!perms[k] : PERMS[k][1]; });
   withLock_(() => {
     if (d.id) {
@@ -447,7 +508,11 @@ function perms_(r) {
 }
 
 function parent_(r) {
-  return { id: str_(r.ID), name: str_(r.Name), pin: str_(r.PIN), active: bool_(r.Active, true), perms: perms_(r) };
+  return { id: str_(r.ID), name: str_(r.Name), pin: str_(r.PIN), active: bool_(r.Active, true), perms: perms_(r), players: idList_(r.Players) };
+}
+
+function idList_(v) {
+  return str_(v).split(',').map(x => x.trim()).filter(Boolean);
 }
 
 /** "4 Smith, 12, 23 Jones" ⇄ [{number:'4', name:'Smith'}, ...] */
@@ -493,10 +558,11 @@ function updateGameField_(id, field, value) {
   writeRow_('Games', row._row, row);
 }
 
-/** { gameId: { playerId | _team: { STAT: total } } } */
+/** Official stats: { gameId: { playerId | _team: { STAT: total } } } */
 function boxes_(onlyGameId) {
   const out = {};
   readRaw_('Events').forEach(r => {
+    if (str_(r[7])) return; // a parent's own record, not official
     const gameId = str_(r[1]);
     if (onlyGameId && gameId !== onlyGameId) return;
     const stat = str_(r[3]);
@@ -504,6 +570,21 @@ function boxes_(onlyGameId) {
     const key = str_(r[2]) || TEAM_KEY;
     const g = out[gameId] || (out[gameId] = {});
     const p = g[key] || (g[key] = {});
+    p[stat] = (p[stat] || 0) + (Number(r[4]) || 0);
+  });
+  return out;
+}
+
+/** Parents' own records for one game: { parentId: { playerId: { STAT: total } } } */
+function bookBoxes_(gameId) {
+  const out = {};
+  readRaw_('Events').forEach(r => {
+    const book = str_(r[7]);
+    if (!book || str_(r[1]) !== gameId) return;
+    const stat = str_(r[3]);
+    if (STATS.indexOf(stat) < 0) return;
+    const b = out[book] || (out[book] = {});
+    const p = b[str_(r[2])] || (b[str_(r[2])] = {});
     p[stat] = (p[stat] || 0) + (Number(r[4]) || 0);
   });
   return out;

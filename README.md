@@ -59,6 +59,17 @@ Everyone you add can **keep stats for the games you assign them** until that gam
 | Fix box score numbers | Use − / + in the box score. Undoing their own taps is always allowed. *On by default.* |
 | See season stats (read only) | Season table, player game logs, every box score, and the opponent comparison. No editing. |
 | Assistant coach | Add/edit players and games, assign stat keepers, track or fix any game (including final ones) |
+| See their players' stats | Read-only official stats (season averages and game log) for the players assigned to them, and nobody else |
+
+### Parents who follow one player
+On the Access tab, tap **Edit** on a parent and tick their player(s) under **Their players**. They can then keep **their own record** of those players at any game, even while another parent keeps the team stats.
+- Their record is **kept separately and never changes the official stats.** You'll see it under **Parent records** in that game's box score, with any numbers that differ from the official stats highlighted.
+- Turn on **See their players' stats** if you want them to be able to look up their player's official numbers.
+
+### Inviting parents
+On the Access tab, tap **Invite** next to a person. You get a ready-to-send message with the app link, their PIN, their games, and five simple steps. Tap **Copy** (or **Text it** on a phone). Parents can also tap **First time? How it works** on the sign-in screen.
+
+Want a shorter link? Make a free one at [tinyurl.com](https://tinyurl.com) with a custom name (e.g. `tinyurl.com/gcs-hoops`) that points to your app link.
 
 **Only the coach PIN** can see PINs, add or remove people, change access, delete games, change team settings, or export to the spreadsheet. Unticking **Can sign in** turns someone off without deleting them.
 
