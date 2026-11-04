@@ -4,7 +4,7 @@
 <base target="_top">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>GCS Hoops Stats</title>
+<title>Team Stats</title>
 <style>
 :root {
   --accent: #1c3d8c;
@@ -323,7 +323,7 @@ function byNumber(a, b) {
 // ===========================================================================
 const S = {
   pin: store.get('gcs_pin', ''),
-  teamName: store.get('gcs_team', "GCS Boys' Basketball"),
+  teamName: store.get('gcs_team', 'Team Stats'),
   me: null,
   view: 'loading',
   pinEntry: '',
@@ -1272,7 +1272,7 @@ function buildReport() {
     d.players.slice().sort(byNumber).forEach(p => {
       if (!played(box[p.id])) return;
       const l = line(box[p.id]);
-      log.push([g.date, g.opponent, g.location, g.status, teamPts(box), oppPts(box), 'GCS', p.number, p.name, l.pts, l.fgm, l.fga, l.FG3M, l.FG3A, l.FTM, l.FTA, l.REB, l.AST, l.STL, l.BLK, l.TO, l.PF]);
+      log.push([g.date, g.opponent, g.location, g.status, teamPts(box), oppPts(box), d.settings.teamName, p.number, p.name, l.pts, l.fgm, l.fga, l.FG3M, l.FG3A, l.FTM, l.FTA, l.REB, l.AST, l.STL, l.BLK, l.TO, l.PF]);
     });
     oppPlayerList(g.oppRoster, box).forEach(p => {
       if (!hasAny(box[p.id])) return;

@@ -99,13 +99,34 @@ function createGas(opts = {}) {
       return sheets[n];
     },
     getUrl: () => 'https://docs.google.com/spreadsheets/d/mock',
+    getId: () => opts.sheetId || 'mock-sheet',
     getSpreadsheetTimeZone: () => 'America/Los_Angeles',
   };
 
   const cache = new Map();
+  const props = new Map();
+  const dialogs = [];
+  const fetches = [];
+  const users = { active: opts.activeUser == null ? 'coach@example.com' : opts.activeUser, owner: 'coach@example.com' };
   const context = {
     console,
-    SpreadsheetApp: { getActiveSpreadsheet: () => ss },
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => ss,
+      getUi: () => {
+        const menu = { items: [], addItem(l, f) { menu.items.push([l, f]); return menu; }, addSeparator() { return menu; }, addToUi() { dialogs.push({ menu: menu.items }); } };
+        return { createMenu: () => menu, showModalDialog: (out, title) => dialogs.push({ title, html: out.html }) };
+      },
+    },
+    PropertiesService: {
+      getScriptProperties: () => ({ getProperty: k => (props.has(k) ? props.get(k) : null), setProperty: (k, v) => { props.set(k, String(v)); } }),
+    },
+    UrlFetchApp: {
+      fetch: (url, o) => {
+        fetches.push({ url, method: o.method, body: o.payload ? JSON.parse(o.payload) : null });
+        const r = (opts.fetch || (() => ({ code: 500, body: {} })))(url, o);
+        return { getResponseCode: () => r.code, getContentText: () => JSON.stringify(r.body || {}) };
+      },
+    },
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) },
     CacheService: {
       getScriptCache: () => ({
@@ -119,9 +140,18 @@ function createGas(opts = {}) {
       sleep: () => {},
       formatDate: d => d.toISOString().slice(0, 10),
     },
-    Session: { getScriptTimeZone: () => 'America/Los_Angeles' },
-    ScriptApp: { getService: () => ({ getUrl: () => opts.appUrl || 'http://localhost:8080' }) },
+    Session: {
+      getScriptTimeZone: () => 'America/Los_Angeles',
+      getActiveUser: () => ({ getEmail: () => users.active }),
+      getEffectiveUser: () => ({ getEmail: () => users.owner }),
+    },
+    ScriptApp: {
+      getService: () => ({ getUrl: () => (opts.appUrl === undefined ? 'http://localhost:8080' : opts.appUrl) }),
+      getScriptId: () => 'script123',
+      getOAuthToken: () => 'token',
+    },
     HtmlService: {
+      createHtmlOutput: html => { const o = { html, setWidth: () => o, setHeight: () => o }; return o; },
       createHtmlOutputFromFile: () => {
         const o = { setTitle: () => o, addMetaTag: () => o };
         return o;
@@ -136,6 +166,10 @@ function createGas(opts = {}) {
     context,
     sheets,
     cache,
+    props,
+    dialogs,
+    fetches,
+    users,
     // Simulate Apps Script's JSON-ish serialization in both directions.
     api: req => JSON.parse(JSON.stringify(context.api(JSON.parse(JSON.stringify(req))))),
   };

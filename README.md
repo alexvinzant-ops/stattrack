@@ -15,6 +15,26 @@ It runs free on Google Apps Script. All data lives in a Google Sheet that you ow
 
 ---
 
+## Sharing with other coaches (no Apps Script needed)
+Other coaches don't need to touch any code. You keep one **template** spreadsheet that already has the app inside and share its "Make a copy" link. Each coach then does this:
+
+1. Open your link and click **Make a copy**. The copy, and all of their team's data, lives in **their** Google Drive.
+2. In their copy, click **🏀 Team Stats → Set up my app**. Approve Google's permission screens. If you see *"Google hasn't verified this app"*, click **Advanced → Go to Team Stats**.
+3. The first time only, Google may ask them to switch on the **Google Apps Script API**. The setup window links straight to that switch and has a **Try again** button.
+4. Their app link and coach PIN appear. They're done, and can continue with *Using it* below.
+
+If Google ever refuses to publish automatically, the setup window shows a 1-minute manual alternative (Deploy → Web app → Anyone).
+
+**Making the template (you, once):**
+1. Create a blank Google Sheet named like `Team Stats (template)` with a **Start Here** tab of instructions.
+2. **Extensions → Apps Script.** Paste [`Code.gs`](apps-script/Code.gs) and add an HTML file named `Index` with [`Index.html`](apps-script/Index.html).
+3. In the editor's **Project Settings** (⚙️), tick **Show "appsscript.json" manifest file in editor**. Then open `appsscript.json` and replace it with [`appsscript.json`](apps-script/appsscript.json). Save.
+4. Don't run setup in the template. Close the editor.
+5. **Share → General access → Anyone with the link → Viewer.**
+6. Copy the sheet's link and change the ending from `/edit…` to `/copy`. That's the link to send coaches.
+
+Each copy automatically gets its own coach PIN and an empty parents list, even if the template had data in it.
+
 ## One-time setup (about 10 minutes)
 
 > **Which Google account?** School Google accounts often block apps that people outside the school can open. If parents get a "You need access" or "Sign in" page in step 6, redo the setup with a personal Gmail account.
