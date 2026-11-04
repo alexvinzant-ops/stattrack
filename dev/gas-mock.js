@@ -107,6 +107,7 @@ function createGas(opts = {}) {
   const props = new Map();
   const dialogs = [];
   const fetches = [];
+  const mails = [];
   const users = { active: opts.activeUser == null ? 'coach@example.com' : opts.activeUser, owner: 'coach@example.com' };
   const context = {
     console,
@@ -120,6 +121,7 @@ function createGas(opts = {}) {
     PropertiesService: {
       getScriptProperties: () => ({ getProperty: k => (props.has(k) ? props.get(k) : null), setProperty: (k, v) => { props.set(k, String(v)); } }),
     },
+    MailApp: { sendEmail: m => { if (opts.mailFails) throw new Error('Service invoked too many times for one day: email.'); mails.push(m); } },
     UrlFetchApp: {
       fetch: (url, o) => {
         fetches.push({ url, method: o.method, body: o.payload ? JSON.parse(o.payload) : null });
@@ -169,6 +171,7 @@ function createGas(opts = {}) {
     props,
     dialogs,
     fetches,
+    mails,
     users,
     // Simulate Apps Script's JSON-ish serialization in both directions.
     api: req => JSON.parse(JSON.stringify(context.api(JSON.parse(JSON.stringify(req))))),
