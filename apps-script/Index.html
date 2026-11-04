@@ -169,6 +169,15 @@ table.compare tr.book-row td { border-bottom-width: 2px; }
 .help-steps { padding-left: 22px; margin: 12px 0 0; }
 .help-steps li { margin-bottom: 12px; }
 .help-steps li span { display: block; color: var(--muted); font-size: 14px; }
+.period-bar { background: var(--accent); color: var(--accent-ink); position: relative; }
+.period-bar .inner { max-width: 920px; margin: 0 auto; padding: 0 16px 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.period-seg { background: rgba(255,255,255,.16); }
+.period-seg button { color: var(--accent-ink); min-width: 46px; padding: 7px 10px; font-size: 15px; }
+.period-seg button.on { background: var(--gold); color: #1d2433; }
+.box-filter { margin: 4px 0 10px; display: flex; flex-wrap: wrap; }
+.box-filter button { flex: 1; min-width: 44px; padding: 6px 8px; }
+.team-fouls { font-size: 13px; opacity: .9; }
+.end-game { margin-top: 16px; border: 2px solid var(--bad); }
 .invite-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .invite-actions .btn { width: 100%; }
 .player-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
@@ -358,7 +367,7 @@ const Queue = {
     const batch = this.items.filter(e => e.gameId === gameId && (e.mode || '') === mode).slice(0, 100);
     let ok = false;
     try {
-      await call('record', { gameId: gameId, mode: mode, events: batch.map(e => ({ id: e.id, playerId: e.playerId, stat: e.stat, delta: e.delta, time: e.time, fix: !!e.fix })) });
+      await call('record', { gameId: gameId, mode: mode, events: batch.map(e => ({ id: e.id, playerId: e.playerId, stat: e.stat, delta: e.delta, time: e.time, fix: !!e.fix, period: e.period })) });
       const sent = new Set(batch.map(e => e.id));
       this.items = this.items.filter(e => !sent.has(e.id));
       this.error = ''; this.offline = false; this.delay = 2000;
@@ -552,9 +561,29 @@ function viewGame() {
     '<div class="team"><div class="nm">' + esc(g.opponent) + '</div><div class="pts">' + oppPts(t.box) + '</div>' +
     (t.canTrack ? '<div class="opp-pad" aria-label="Opponent points">' : '<div class="hidden">') + '<button data-act="opp" data-d="1">+1</button><button data-act="opp" data-d="2">+2</button><button data-act="opp" data-d="3">+3</button><button data-act="opp" data-d="-1" ' + (oppPts(t.box) ? '' : 'disabled') + '>−1</button></div></div>' +
     '</div></div>';
-  const head = topBar(gameTitle(g), left, t.canTrack ? syncHtml() : '', tabs) + scoreboard;
+  const head = topBar(gameTitle(g), left, t.canTrack ? syncHtml() : '', tabs) + scoreboard + (t.canTrack && t.tab === 'track' ? periodBar() : '');
   const body = t.tab === 'track' && t.canTrack ? viewTracker() : viewGameBox(coach);
   return head + '<div class="wrap">' + body + '</div>';
+}
+
+function periodBar() {
+  const t = S.t;
+  const max = Math.max(5, t.period + 1);
+  const btns = [];
+  for (let n = 1; n <= max; n++) {
+    if (n > 5 && n > t.period + 1) break;
+    btns.push('<button class="' + (n === t.period ? 'on' : '') + '" data-act="period" data-n="' + n + '">' + periodLabel(n) + '</button>');
+  }
+  const q = (t.periods || {})[t.period] || {};
+  const fouls = t.mode ? '' : '<div class="team-fouls">Team fouls ' + periodLabel(t.period) + ': <b>' + esc(shortTeam()) + ' ' + n0(q.usPF) + '</b> · ' + esc(t.game.opponent) + ' ' + n0(q.oppPF) + '</div>';
+  return '<div class="period-bar"><div class="inner"><div class="seg period-seg">' + btns.join('') + '</div>' + fouls + '</div></div>';
+}
+
+function endGameButton() {
+  const t = S.t;
+  if (t.mode || !t.canTrack) return '';
+  if (t.game.status === 'final') return '<div class="card small muted" style="text-align:center">This game is final.' + (can('manage') ? ' You can still fix numbers.' : '') + '</div>';
+  return '<button class="btn danger big end-game" data-act="endGame">' + (can('manage') ? 'End game (mark final)' : 'Game over: submit final stats') + '</button>';
 }
 
 function viewTracker() {
@@ -585,7 +614,7 @@ function viewTracker() {
   const playsHtml = plays.length ? plays.map(p => {
     const who = p.playerId ? anyLabel(p.playerId) : (p.events[0] && p.events[0].stat === 'OPP' ? g_opp() : 'Team');
     return '<div class="list-item ' + (p.undone ? 'undone' : '') + '"><div class="grow"><b>' + esc(who) + '</b> · ' + esc(p.label) +
-      '<div class="muted small">' + esc(new Date(p.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) + '</div></div>' +
+      '<div class="muted small">' + (p.events[0] && p.events[0].period && !S.t.mode ? periodLabel(p.events[0].period) + ' · ' : '') + esc(new Date(p.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) + '</div></div>' +
       (p.undone ? '<span class="muted small">undone</span>' : '<button class="btn sm" data-act="undo" data-id="' + esc(p.id) + '">Undo</button>') + '</div>';
   }).join('') : '<div class="muted small" style="padding:8px 0">Plays you enter will show here so you can undo mistakes.</div>';
   const sideToggle = isPersonal() ? '' : '<div class="row" style="margin-top:12px"><div class="seg side-seg">' +
@@ -598,9 +627,10 @@ function viewTracker() {
     pad +
     '<div class="row" style="margin-top:12px">' + (opp ? '<button class="btn sm" data-act="oppRoster">Opponent numbers</button>' : '<button class="btn sm" data-act="whosHere">Who\'s playing?</button>') + '<span class="spacer"></span>' +
     (t.sel || t.armed ? '<button class="btn sm" data-act="clearSel">Cancel selection</button>' : '') + '</div>' +
-    '<div class="card plays"><h2>Recent plays</h2>' + playsHtml + '</div>';
+    '<div class="card plays"><h2>Recent plays</h2>' + playsHtml + '</div>' +
+    endGameButton();
 }
-function shortTeam() { return (S.teamName.split(/\s+/)[0] || 'Us').slice(0, 14); }
+function shortTeam() { return S.teamName.length <= 12 ? S.teamName : (S.teamName.split(/\s+/)[0] || 'Us').slice(0, 14); }
 function g_opp() { return S.t ? S.t.game.opponent : 'Opponent'; }
 
 function boxTable(players, box, clickable, opp) {
@@ -659,11 +689,13 @@ function parentBooksCard() {
 function viewGameBox(coach) {
   const t = S.t, g = t.game;
   if (isPersonal()) return viewPersonalBox();
-  const unplayed = t.canFix ? gamePlayers().filter(p => !played(t.box[p.id])) : [];
+  const unplayed = t.canFix && (!t.boxFilter || t.boxFilter === 'all') ? gamePlayers().filter(p => !played(t.box[p.id])) : [];
   const opps = oppPlayerList(g.oppRoster, t.box);
-  const quick = n0(t.box[TEAM] && t.box[TEAM].OPP);
-  const oppCard = (hasOppStats(t.box) || (t.canFix && (g.oppRoster || []).length))
-    ? '<div class="card"><h2>' + esc(g.opponent) + '</h2>' + boxTable(opps, t.box, t.canFix, true) +
+  const fb = filteredBox();
+  const quick = n0(fb[TEAM] && fb[TEAM].OPP);
+  const oppBox = filteredBox(), oppWhole = !t.boxFilter || t.boxFilter === 'all';
+  const oppCard = (hasOppStats(oppBox) || (oppWhole && t.canFix && (g.oppRoster || []).length))
+    ? '<div class="card"><h2>' + esc(g.opponent) + (oppWhole ? '' : ' · ' + (t.boxFilter === 'ot' ? 'OT' : periodLabel(Number(t.boxFilter)))) + '</h2>' + boxTable(opps, oppBox, t.canFix && oppWhole, true) +
       (quick ? '<p class="muted small">Plus ' + quick + ' point' + (quick === 1 ? '' : 's') + ' from the quick +1/+2/+3 buttons.</p>' : '') +
       (t.canFix ? '<div class="row wrap-row" style="margin-top:8px">' + opps.filter(p => !hasAny(t.box[p.id])).map(p => '<button class="btn sm" data-act="editLine" data-id="' + esc(p.id) + '">' + esc(p.number !== '' ? '#' + p.number : 'Team') + '</button>').join('') + '</div>' : '') +
       '</div>'
@@ -672,17 +704,39 @@ function viewGameBox(coach) {
   if (!t.canTrack) {
     statusHtml = '';
   } else if (coach) {
-    statusHtml = '<div class="row wrap-row"><span class="muted small">Status</span><div class="seg">' +
+    statusHtml = (g.status !== 'final' ? endGameButton() + '<p class="muted small">Or set the status directly:</p>' : '') +
+      '<div class="row wrap-row"><span class="muted small">Status</span><div class="seg">' +
       ['scheduled', 'live', 'final'].map(s => '<button class="' + (g.status === s ? 'on' : '') + '" data-act="setStatus" data-s="' + s + '">' + (s === 'scheduled' ? 'Upcoming' : s[0].toUpperCase() + s.slice(1)) + '</button>').join('') + '</div></div>';
   } else {
     statusHtml = '<button class="btn primary big" data-act="endGame">Game over: submit final stats</button>' +
       '<p class="muted small">After you submit, the stats go to the coach and this game closes on your phone.</p>';
   }
+  const whole = !t.boxFilter || t.boxFilter === 'all';
+  const shown = filteredBox();
   return '<div class="card"><div class="row"><h2 class="grow" style="flex:1">' + esc(fmtDate(g.date)) + '</h2>' + statusChip(g.status) + '</div>' +
-    (t.canFix ? '<p class="muted small" style="margin:0 0 8px">Tap a player to fix their numbers.</p>' : '') +
-    boxTable(t.players, t.box, t.canFix) +
+    boxFilterBar() +
+    (whole ? (t.canFix ? '<p class="muted small" style="margin:0 0 8px">Tap a player to fix their numbers.</p>' : '')
+      : '<p class="muted small" style="margin:0 0 8px">Showing ' + (t.boxFilter === 'ot' ? 'overtime' : periodLabel(Number(t.boxFilter))) + ' only (' + shortTeam() + ' ' + teamPts(shown) + ', ' + esc(g.opponent) + ' ' + oppPts(shown) + '). Tap Game to fix numbers.</p>') +
+    boxTable(t.players, shown, t.canFix && whole) +
     (unplayed.length ? '<div class="row wrap-row" style="margin-top:12px"><span class="muted small">Add a player:</span>' + unplayed.map(p => '<button class="btn sm" data-act="editLine" data-id="' + esc(p.id) + '">' + esc(playerLabel(p)) + '</button>').join('') + '</div>' : '') +
-    '</div>' + oppCard + parentBooksCard() + (statusHtml ? '<div class="card">' + statusHtml + '</div>' : '');
+    '</div>' + quarterCard() + oppCard + parentBooksCard() + (statusHtml ? '<div class="card">' + statusHtml + '</div>' : '');
+}
+
+function quarterCard() {
+  const t = S.t;
+  const ns = Object.keys(t.periods || {}).map(Number).filter(n => n > 0).sort((a, b) => a - b);
+  if (!ns.length) return '';
+  for (let n = 1; n <= 4; n++) if (ns.indexOf(n) < 0) ns.push(n);
+  ns.sort((a, b) => a - b);
+  const cell = (n, k) => n0(((t.periods || {})[n] || {})[k]);
+  const row = (label, k, total) => '<tr><td>' + esc(label) + '</td>' + ns.map(n => '<td>' + cell(n, k) + '</td>').join('') + '<td><b>' + total + '</b></td></tr>';
+  return '<div class="card"><h2>By quarter</h2><div class="table-wrap"><table><thead><tr><th>Points</th>' + ns.map(n => '<th>' + periodLabel(n) + '</th>').join('') + '<th>Total</th></tr></thead><tbody>' +
+    row(shortTeam(), 'us', teamPts(t.box)) + row(t.game.opponent, 'opp', oppPts(t.box)) +
+    '</tbody><thead><tr><th>Team fouls</th>' + ns.map(n => '<th>' + periodLabel(n) + '</th>').join('') + '<th></th></tr></thead><tbody>' +
+    row(shortTeam(), 'usPF', '') + row(t.game.opponent, 'oppPF', '') +
+    '</tbody></table></div>' +
+    (Object.keys(t.box).some(k => k !== TEAM && hasAny(t.box[k])) && ns.reduce((a, n) => a + cell(n, 'us'), 0) !== teamPts(t.box)
+      ? '<p class="muted small">Some points were entered before quarters were tracked, so quarters may not add up to the total.</p>' : '') + '</div>';
 }
 
 // ---------------------------------------------------------------------------
@@ -1131,19 +1185,59 @@ function applyEv(box, e) {
   box[k] = box[k] || {};
   box[k][e.stat] = (box[k][e.stat] || 0) + e.delta;
 }
-function mkEv(playerId, stat, delta) {
-  return { id: uid(), gameId: S.t.game.id, mode: S.t.mode || '', playerId: playerId || '', stat: stat, delta: delta, time: new Date().toISOString() };
+const POINTS = { FG2M: 2, FG3M: 3, FTM: 1 };
+// Scoring and team fouls by quarter, kept in step with the box score on this device.
+function applyPeriod(periods, e) {
+  if (!periods || !e.period) return;
+  const q = periods[e.period] || (periods[e.period] = { us: 0, opp: 0, usPF: 0, oppPF: 0 });
+  const opp = e.stat === 'OPP' || isOpp(e.playerId);
+  if (e.stat === 'OPP') q.opp += e.delta;
+  else if (POINTS[e.stat]) q[opp ? 'opp' : 'us'] += POINTS[e.stat] * e.delta;
+  else if (e.stat === 'PF') q[opp ? 'oppPF' : 'usPF'] += e.delta;
+}
+function applyAll(t, e) {
+  applyEv(t.box, e);
+  if (t.mode || !e.period) return;
+  applyPeriod(t.periods, e);
+  t.periodBoxes = t.periodBoxes || {};
+  applyEv(t.periodBoxes[e.period] || (t.periodBoxes[e.period] = {}), e);
+}
+// Box score for the chosen filter: whole game, one quarter, or all overtime periods together.
+function filteredBox() {
+  const t = S.t, f = t.boxFilter || 'all';
+  if (f === 'all' || t.mode) return t.box;
+  const out = {};
+  Object.keys(t.periodBoxes || {}).map(Number).filter(n => (f === 'ot' ? n >= 5 : n === Number(f))).forEach(n => {
+    const b = t.periodBoxes[n];
+    Object.keys(b).forEach(k => { out[k] = addLine(out[k] || {}, b[k]); if (b[k].OPP) out[k].OPP = n0(out[k].OPP) + b[k].OPP; });
+  });
+  return out;
+}
+function boxFilterBar() {
+  const t = S.t;
+  if (t.mode) return '';
+  const ns = Object.keys(t.periodBoxes || {}).map(Number);
+  if (!ns.length) return '';
+  const opts = [['all', 'Game'], ['1', 'Q1'], ['2', 'Q2'], ['3', 'Q3'], ['4', 'Q4']];
+  if (ns.some(n => n >= 5)) opts.push(['ot', 'OT']);
+  const f = t.boxFilter || 'all';
+  return '<div class="seg box-filter">' + opts.map(([k, l]) => '<button class="' + (f === k ? 'on' : '') + '" data-act="boxFilter" data-f="' + k + '">' + l + '</button>').join('') + '</div>';
+}
+function periodLabel(n) { return n <= 4 ? 'Q' + n : (n === 5 ? 'OT' : (n - 4) + 'OT'); }
+function mkEv(playerId, stat, delta, period) {
+  return { id: uid(), gameId: S.t.game.id, mode: S.t.mode || '', playerId: playerId || '', stat: stat, delta: delta, period: period || S.t.period || 1, time: new Date().toISOString() };
 }
 const localKey = (gameId, mode) => gameId + (mode === 'personal' ? '_p' : '');
 function saveGameLocal() {
   const t = S.t, k = localKey(t.game.id, t.mode);
-  store.set('gcs_box_' + k, { game: t.game, players: t.players, box: t.box, canTrack: t.canTrack, canFix: t.canFix, mode: t.mode });
+  store.set('gcs_box_' + k, { game: t.game, players: t.players, box: t.box, periods: t.periods, periodBoxes: t.periodBoxes, canTrack: t.canTrack, canFix: t.canFix, mode: t.mode });
+  store.set('gcs_period_' + k, t.period);
   store.set('gcs_plays_' + k, t.plays.slice(0, 40));
 }
 const isPersonal = () => !!S.t && S.t.mode === 'personal';
 function commit(playerId, events, label, quiet) {
   const t = S.t;
-  events.forEach(e => applyEv(t.box, e));
+  events.forEach(e => applyAll(t, e));
   Queue.push(events);
   const play = { id: uid(), playerId: playerId || '', label: label, events: events, time: new Date().toISOString(), undone: false };
   t.plays.unshift(play);
@@ -1172,9 +1266,8 @@ async function openGame(gameId, tab, mode) {
   let t = null;
   try {
     const r = await call('game', { gameId: gameId, mode: mode });
-    const box = r.box || {};
-    Queue.items.filter(e => e.gameId === gameId && (e.mode || '') === mode).forEach(e => applyEv(box, e));
-    t = { game: r.game, players: r.players, box: box, canTrack: r.canTrack, canFix: r.canFix, mode: mode, parentBooks: r.parentBooks || [] };
+    t = { game: r.game, players: r.players, box: r.box || {}, periods: r.periods || {}, periodBoxes: r.periodBoxes || {}, currentPeriod: r.currentPeriod || 0, canTrack: r.canTrack, canFix: r.canFix, mode: mode, parentBooks: r.parentBooks || [] };
+    Queue.items.filter(e => e.gameId === gameId && (e.mode || '') === mode).forEach(e => applyAll(t, e));
   } catch (err) {
     const cached = store.get('gcs_box_' + localKey(gameId, mode), null);
     if (err.network && cached) {
@@ -1188,7 +1281,13 @@ async function openGame(gameId, tab, mode) {
     }
   }
   Queue.paused = false; Queue.flush();
-  S.t = Object.assign(t, { tab: t.canTrack ? (tab || 'track') : 'box', side: 'us', sel: null, armed: null, plays: store.get('gcs_plays_' + localKey(gameId, mode), []), backTo: prevView });
+  const savedPeriod = store.get('gcs_period_' + localKey(gameId, mode), 0);
+  S.t = Object.assign(t, {
+    tab: t.canTrack ? (tab || 'track') : 'box', side: 'us', sel: null, armed: null,
+    period: Math.max(savedPeriod || 0, t.currentPeriod || 0) || 1,
+    periods: t.periods || {},
+    plays: store.get('gcs_plays_' + localKey(gameId, mode), []), backTo: prevView,
+  });
   saveGameLocal();
   S.view = 'game';
   render();
@@ -1204,6 +1303,7 @@ async function refreshGameFromServer() {
     const r = await call('game', { gameId: t.game.id, mode: t.mode });
     if (S.t !== t || Queue.count(t.game.id)) return;
     t.box = r.box || {}; t.game = r.game; t.players = r.players; t.canTrack = r.canTrack; t.canFix = r.canFix; t.parentBooks = r.parentBooks || [];
+    if (!t.mode) { t.periods = r.periods || {}; t.periodBoxes = r.periodBoxes || {}; if ((r.currentPeriod || 0) > t.period) t.period = r.currentPeriod; }
     saveGameLocal();
     if (!modalState) render();
   } catch (e) { /* stay with local numbers */ }
@@ -1418,8 +1518,9 @@ const ACTS = {
     if (!t) return;
     const p = t.plays.find(x => x.id === el.dataset.id);
     if (!p || p.undone) return;
-    const rev = p.events.map(e => mkEv(e.playerId, e.stat, -e.delta));
-    rev.forEach(e => applyEv(t.box, e));
+    // Undo lands in the quarter the play happened in, even if the quarter has changed since.
+    const rev = p.events.map(e => mkEv(e.playerId, e.stat, -e.delta, e.period));
+    rev.forEach(e => applyAll(t, e));
     Queue.push(rev);
     p.undone = true;
     saveGameLocal();
@@ -1428,6 +1529,15 @@ const ACTS = {
     render();
   },
   whosHere() { whosHereForm(); },
+  boxFilter(el) { S.t.boxFilter = el.dataset.f; render(); },
+  period(el) {
+    const n = Number(el.dataset.n);
+    if (!n || n === S.t.period) return;
+    S.t.period = n;
+    saveGameLocal();
+    render();
+    toast('Now tracking ' + periodLabel(n));
+  },
   oppRoster() { oppRosterForm(); },
   side(el) { S.t.side = el.dataset.side; S.t.sel = null; render(); },
   editLine(el) { lineEditor(el.dataset.id); },
@@ -1451,21 +1561,33 @@ const ACTS = {
     } catch (err) { err.auth ? logout(err.message) : toast(err.message); }
   },
   async endGame(el) {
-    const t = S.t;
-    if (!confirm('Submit final stats for ' + gameTitle(t.game) + '? You will not be able to change them after this.')) return;
+    const t = S.t, manager = can('manage');
+    const label = el.textContent;
+    const score = shortTeam() + ' ' + teamPts(t.box) + ', ' + t.game.opponent + ' ' + oppPts(t.box);
+    if (!confirm(manager
+      ? 'End the game and mark it final?\n\nFinal score: ' + score + '\n\nYou can still fix numbers afterwards.'
+      : 'Submit final stats for ' + gameTitle(t.game) + '?\n\nFinal score: ' + score + '\n\nYou won\'t be able to change them after this.')) return;
     el.disabled = true; el.textContent = 'Saving all plays…';
     const ok = await Queue.drain(t.game.id, 20000);
     if (!ok) {
-      el.disabled = false; el.textContent = 'Game over: submit final stats';
+      el.disabled = false; el.textContent = label;
       return alert('Some plays are still waiting to save. Check your connection and try again. Nothing is lost; they are stored on this phone.');
     }
     try {
       await call('setStatus', { gameId: t.game.id, status: 'final' });
-      store.del('gcs_box_' + localKey(t.game.id)); store.del('gcs_plays_' + localKey(t.game.id));
+      if (manager) {
+        t.game.status = 'final';
+        t.tab = 'box';
+        render();
+        window.scrollTo(0, 0);
+        toast('Game over. Final: ' + score);
+        return;
+      }
+      store.del('gcs_box_' + localKey(t.game.id)); store.del('gcs_plays_' + localKey(t.game.id)); store.del('gcs_period_' + localKey(t.game.id));
       toast('Thanks! Stats sent to the coach.');
       await ACTS.leaveGame();
     } catch (err) {
-      el.disabled = false; el.textContent = 'Game over: submit final stats';
+      el.disabled = false; el.textContent = label;
       err.auth ? logout(err.message) : alert(err.message);
     }
   },

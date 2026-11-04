@@ -420,3 +420,30 @@ test('coach can email an invite, only to the address saved for that person', () 
   const noEmail = t.coach('saveParent', { name: 'Kim' }).parents.find(p => p.name === 'Kim');
   assert.throws(() => t.coach('emailInvite', { id: noEmail.id, body: 'PIN ' + noEmail.pin }), /email address/);
 });
+
+test('plays record their quarter; the box score gets scoring and team fouls by quarter', () => {
+  const t = setup();
+  const { pat, g1, ava, ben } = seed(t);
+  const q = (e, period) => ({ ...e, period });
+  t.call(pat.pin, 'record', { gameId: g1.id, events: [
+    q(ev(ava.id, 'FG2M'), 1), q(ev(ava.id, 'FG2A'), 1), q(ev(ben.id, 'PF'), 1), q(ev('', 'OPP', 3), 1),
+    q(ev(ava.id, 'FG3M'), 2), q(ev(ava.id, 'FG3A'), 2), q(ev(ben.id, 'FTM'), 2), q(ev(ben.id, 'FTA'), 2),
+    q(ev('opp:23', 'FG2M'), 2), q(ev('opp:23', 'PF'), 2), q(ev('opp:23', 'PF'), 2),
+    q(ev(ava.id, 'FG3M', -1), 2), // undo
+    q(ev(ava.id, 'REB'), 5), // overtime
+    q(ev(ben.id, 'REB'), 42), // bad period is ignored, play still saved
+  ] });
+  const g = t.call(pat.pin, 'game', { gameId: g1.id });
+  assert.deepEqual(g.periods, {
+    1: { us: 2, opp: 3, usPF: 1, oppPF: 0 },
+    2: { us: 1, opp: 2, usPF: 0, oppPF: 2 },
+    5: { us: 0, opp: 0, usPF: 0, oppPF: 0 },
+  });
+  assert.equal(g.currentPeriod, 5);
+  assert.deepEqual(g.periodBoxes[5], { [ava.id]: { REB: 1 } }, 'overtime box score');
+  assert.deepEqual(g.periodBoxes[2][ava.id], { FG3M: 0, FG3A: 1 });
+  assert.deepEqual(g.periodBoxes[1]._team, { OPP: 3 });
+  assert.equal(g.box[ben.id].REB, 1, 'play with a bad period still counts');
+  // Sum by quarter matches the box score total.
+  assert.equal(2 + 1, 2 * (g.box[ava.id].FG2M || 0) + 3 * (g.box[ava.id].FG3M || 0) + (g.box[ben.id].FTM || 0));
+});

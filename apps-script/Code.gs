@@ -24,7 +24,8 @@ const TABLES = {
   Parents: ['ID', 'Name', 'PIN', 'Active', 'Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players', 'Email', 'Phone', 'Invited'],
   Games: ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes', 'Opp Roster'],
   // Book is blank for official stats, or a parent's ID for that parent's own record of their players.
-  Events: ['ID', 'Game ID', 'Player ID', 'Stat', 'Delta', 'Time', 'Entered By', 'Book'],
+  // Period: 1-4 = quarters, 5 = OT, 6 = 2OT... (blank on plays recorded before quarters were tracked)
+  Events: ['ID', 'Game ID', 'Player ID', 'Stat', 'Delta', 'Time', 'Entered By', 'Book', 'Period'],
 };
 // Columns stored as plain text so Sheets doesn't turn PINs, dates, or jersey "00" into numbers/dates.
 const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3, 9, 11, 12, 13], Games: [2, 8] };
@@ -197,10 +198,14 @@ function getGame_(who, data) {
   if (!track && !(who.perms.viewStats || who.perms.manage)) checkGameAccess_(who, g); // throws the reason
   const box = boxes_(g.id)[g.id] || {};
   const players = listPlayers_().filter(p => p.active || box[p.id]);
+  const byPeriod = periods_(g.id);
   const out = {
     game: g, box: box, players: players,
     canTrack: track,
     canFix: track && !!(who.perms.fixStats || who.perms.manage),
+    periods: byPeriod.periods,
+    periodBoxes: byPeriod.boxes,
+    currentPeriod: byPeriod.current,
   };
   if (who.role === 'coach') out.parentBooks = parentBooks_(g.id);
   return out;
@@ -255,7 +260,8 @@ function record_(who, data) {
       else if (OPP_ID.test(playerId)) { if (stat === 'GP') throw new Error('Bad stat change.'); }
       else if (!playerIds[playerId]) throw new Error('Unknown player.');
       const time = isNaN(Date.parse(e.time)) ? new Date().toISOString() : new Date(e.time).toISOString();
-      rows.push([id, g.id, playerId, stat, delta, time, who.name, personal ? who.id : '']);
+      const period = Number(e.period);
+      rows.push([id, g.id, playerId, stat, delta, time, who.name, personal ? who.id : '', Number.isInteger(period) && period >= 1 && period <= 9 ? period : '']);
       seen[id] = true;
     });
     appendRows_('Events', rows);
@@ -613,6 +619,36 @@ function boxes_(onlyGameId) {
     p[stat] = (p[stat] || 0) + (Number(r[4]) || 0);
   });
   return out;
+}
+
+const POINTS_ = { FG2M: 2, FG3M: 3, FTM: 1 };
+
+/**
+ * Official stats split by period:
+ *   periods: { 1: { us, opp, usPF, oppPF } }   scoring and team fouls
+ *   boxes:   { 1: { playerId: { STAT: n } } }   each player's line in that period
+ */
+function periods_(gameId) {
+  const periods = {}, boxes = {};
+  let current = 0;
+  readRaw_('Events').forEach(r => {
+    if (str_(r[1]) !== gameId || str_(r[7])) return;
+    const p = Number(r[8]);
+    if (!Number.isInteger(p) || p < 1) return;
+    const stat = str_(r[3]), delta = Number(r[4]) || 0, pid = str_(r[2]);
+    const q = periods[p] || (periods[p] = { us: 0, opp: 0, usPF: 0, oppPF: 0 });
+    const opp = stat === 'OPP' || OPP_ID.test(pid);
+    if (stat === 'OPP') q.opp += delta;
+    else if (POINTS_[stat]) q[opp ? 'opp' : 'us'] += POINTS_[stat] * delta;
+    else if (stat === 'PF') q[opp ? 'oppPF' : 'usPF'] += delta;
+    if (STATS.indexOf(stat) >= 0) {
+      const b = boxes[p] || (boxes[p] = {});
+      const line = b[pid || TEAM_KEY] || (b[pid || TEAM_KEY] = {});
+      line[stat] = (line[stat] || 0) + delta;
+    }
+    if (p > current) current = p;
+  });
+  return { periods: periods, boxes: boxes, current: current };
 }
 
 /** Parents' own records for one game: { parentId: { playerId: { STAT: total } } } */
