@@ -1,0 +1,9 @@
+{
+  "name": "gcs-hoops-stats",
+  "private": true,
+  "description": "Basketball stat tracker for GCS Boys' Basketball (Google Apps Script + Google Sheets)",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "dev": "node dev/server.js"
+  }
+}

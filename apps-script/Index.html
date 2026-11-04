@@ -1,0 +1,1407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GCS Hoops Stats</title>
+<style>
+:root {
+  --accent: #1c3d8c;
+  --accent-2: #2f5bd0;
+  --accent-ink: #ffffff;
+  --gold: #f2b705;
+  --bg: #eef1f6;
+  --card: #ffffff;
+  --ink: #141821;
+  --muted: #5f6b7d;
+  --line: #dde2ea;
+  --good: #0f7a55;
+  --good-bg: #e3f5ec;
+  --bad: #b8322a;
+  --bad-bg: #fbe9e7;
+  --warn: #b26a00;
+  --warn-bg: #fff3dc;
+  --sel: #ffd84d;
+  --radius: 14px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; touch-action: manipulation; }
+button:disabled { opacity: .45; cursor: default; }
+h1, h2, h3 { margin: 0; line-height: 1.2; }
+.wrap { max-width: 920px; margin: 0 auto; padding: 0 16px 96px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.row { display: flex; align-items: center; gap: 8px; }
+.row.wrap-row { flex-wrap: wrap; }
+.spacer { flex: 1; }
+.hidden { display: none !important; }
+
+/* Top bar */
+.top { background: var(--accent); color: var(--accent-ink); position: sticky; top: 0; z-index: 20; }
+.top .bar { max-width: 920px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 10px; min-height: 52px; }
+.top h1 { font-size: 18px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top .link { color: var(--accent-ink); opacity: .9; font-size: 14px; padding: 6px 8px; border-radius: 8px; }
+.top .link:active { background: rgba(255,255,255,.15); }
+.tabs { max-width: 920px; margin: 0 auto; display: flex; padding: 0 8px; overflow-x: auto; }
+.tabs button { color: var(--accent-ink); opacity: .75; padding: 10px 12px 12px; font-weight: 600; font-size: 15px; border-bottom: 3px solid transparent; white-space: nowrap; }
+.tabs button.on { opacity: 1; border-color: var(--gold); }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 14px; border-radius: 10px; font-weight: 600; background: var(--card); border: 1px solid var(--line); min-height: 42px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.danger { color: var(--bad); }
+.btn.big { width: 100%; min-height: 52px; font-size: 17px; }
+.btn.sm { min-height: 34px; padding: 6px 10px; font-size: 14px; }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+
+/* Cards & lists */
+.card { background: var(--card); border-radius: var(--radius); border: 1px solid var(--line); padding: 14px; margin-top: 12px; }
+.card h2 { font-size: 17px; margin-bottom: 8px; }
+.section-title { margin: 20px 2px 0; font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+.list-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.list-item:first-child { border-top: 0; }
+.list-item .grow { flex: 1; min-width: 0; }
+.jersey { width: 40px; height: 40px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 800; flex: none; }
+.jersey.off { background: #a7b0bf; }
+.chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; background: #e6eaf1; color: var(--muted); }
+.chip.live { background: var(--bad-bg); color: var(--bad); }
+.chip.final { background: #e4e8ef; color: #334; }
+.chip.win { background: var(--good-bg); color: var(--good); }
+.chip.loss { background: var(--bad-bg); color: var(--bad); }
+.empty { text-align: center; padding: 28px 12px; color: var(--muted); }
+
+/* Stat tiles */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 12px; }
+.tile { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.tile .label { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; }
+.tile .value { font-size: 26px; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.tile .sub { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: 0 -14px; padding: 0 14px; -webkit-overflow-scrolling: touch; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 14px; }
+th, td { padding: 9px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 700; position: sticky; top: 0; background: var(--card); }
+th.sortable { cursor: pointer; user-select: none; }
+th.sorted { color: var(--accent); }
+td:first-child, th:first-child { text-align: left; position: sticky; left: 0; background: var(--card); z-index: 1; }
+tr.total td { font-weight: 800; border-top: 2px solid var(--ink); }
+tr.click { cursor: pointer; }
+tr.click:active td { background: #f3f6fb; }
+.pname { font-weight: 600; }
+.pnum { color: var(--muted); font-weight: 600; margin-right: 4px; }
+
+/* Segmented control */
+.seg { display: inline-flex; background: #e3e8f0; border-radius: 10px; padding: 3px; }
+.seg button { padding: 6px 12px; border-radius: 8px; font-weight: 600; font-size: 14px; color: var(--muted); }
+.seg button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+
+/* Forms */
+label.field { display: block; margin-top: 12px; font-weight: 600; font-size: 14px; }
+label.field input, label.field select, label.field textarea { display: block; width: 100%; margin-top: 4px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-weight: 400; font-size: 16px; }
+label.check { display: flex; align-items: center; gap: 10px; padding: 10px 0; font-weight: 600; }
+label.check input { width: 22px; height: 22px; flex: none; }
+.form-actions { display: flex; gap: 8px; margin-top: 18px; }
+.form-actions .btn { flex: 1; }
+.err { color: var(--bad); font-weight: 600; min-height: 1.4em; margin-top: 8px; }
+.note { background: var(--warn-bg); color: #6b4300; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-top: 10px; }
+
+/* Modal */
+.overlay { position: fixed; inset: 0; background: rgba(10,16,30,.5); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
+.modal { background: var(--card); width: 100%; max-width: 520px; max-height: 92vh; overflow: auto; border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); }
+@media (min-width: 600px) { .overlay { align-items: center; } .modal { border-radius: 18px; } }
+.modal h2 { font-size: 19px; }
+
+/* Login */
+.login { max-width: 360px; margin: 0 auto; padding: 32px 16px; text-align: center; }
+.login .logo { width: 72px; height: 72px; border-radius: 20px; background: var(--accent); margin: 0 auto 12px; display: grid; place-items: center; font-size: 40px; }
+.login h1 { font-size: 22px; }
+.dots { display: flex; justify-content: center; gap: 12px; margin: 24px 0 4px; min-height: 18px; }
+.dots span { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--accent); }
+.dots span.on { background: var(--accent); }
+.keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0 16px; }
+.keypad button { height: 62px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); font-size: 24px; font-weight: 600; }
+.keypad button:active { background: #e6ebf3; }
+
+/* Tracker */
+.score { background: var(--accent); color: var(--accent-ink); }
+.score .inner { max-width: 920px; margin: 0 auto; padding: 4px 16px 12px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
+.score .team { text-align: center; min-width: 0; }
+.score .team .nm { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.score .team .pts { font-size: 38px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.score .dash { font-size: 22px; opacity: .6; }
+.opp-pad { display: flex; gap: 6px; justify-content: center; margin-top: 4px; }
+.opp-pad button { background: rgba(255,255,255,.16); color: var(--accent-ink); border-radius: 8px; padding: 4px 9px; font-weight: 700; font-size: 14px; min-width: 38px; }
+.opp-pad button:active { background: rgba(255,255,255,.3); }
+.sync { font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+.sync::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: #39d98a; }
+.sync.pending::before { background: var(--gold); }
+.sync.offline::before, .sync.error::before { background: #ff6b5e; }
+
+.hint { text-align: center; font-weight: 600; color: var(--muted); padding: 10px 0 4px; min-height: 36px; }
+.hint b { color: var(--ink); }
+.players { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.pbtn { background: var(--card); border: 2px solid var(--line); border-radius: 12px; padding: 8px 6px; text-align: center; min-height: 72px; }
+.pbtn .n { font-size: 22px; font-weight: 800; line-height: 1.1; }
+.pbtn .nm { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pbtn .ln { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pbtn .ln .foul4 { color: var(--warn); font-weight: 800; }
+.pbtn .ln .foul5 { color: var(--bad); font-weight: 800; }
+.pbtn.sel { border-color: var(--accent); background: var(--sel); }
+.pad { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.sbtn { border-radius: 12px; min-height: 58px; font-weight: 800; font-size: 16px; background: var(--card); border: 2px solid var(--line); line-height: 1.1; }
+.sbtn small { display: block; font-size: 11px; font-weight: 700; opacity: .8; letter-spacing: .04em; }
+.sbtn.make { background: var(--good-bg); border-color: #9fd8bd; color: var(--good); }
+.sbtn.miss { background: var(--bad-bg); border-color: #efb4ad; color: var(--bad); }
+.sbtn.armed { outline: 3px solid var(--accent); outline-offset: 1px; background: var(--sel); color: var(--ink); }
+.sbtn:active { filter: brightness(.94); }
+.plays .list-item { padding: 9px 0; }
+.side-seg { width: 100%; display: flex; }
+.side-seg button { flex: 1; padding: 9px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plays .undone .grow { text-decoration: line-through; color: var(--muted); }
+
+.stepper-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.stepper-row:first-of-type { border-top: 0; }
+.stepper-row .lbl { flex: 1; font-weight: 600; }
+.stepper-row .val { width: 38px; text-align: center; font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.stepper-row button { width: 44px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: #f5f7fb; font-size: 22px; font-weight: 700; }
+
+/* Toast */
+.toast { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: #1d2433; color: #fff; padding: 10px 12px 10px 16px; border-radius: 12px; display: flex; gap: 12px; align-items: center; z-index: 60; max-width: calc(100vw - 32px); box-shadow: 0 6px 20px rgba(0,0,0,.25); font-weight: 600; }
+.toast button { color: var(--gold); font-weight: 800; padding: 6px 8px; }
+.loading { text-align: center; padding: 60px 16px; color: var(--muted); font-weight: 600; }
+.copybox { display: flex; gap: 8px; margin-top: 8px; }
+.copybox input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
+.pin { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 800; letter-spacing: .12em; background: #eef2f8; padding: 2px 8px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<div id="app"><div class="loading">Loading…</div></div>
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+
+<script>
+'use strict';
+// ===========================================================================
+// Basics
+// ===========================================================================
+const TEAM = '_team';
+const $ = sel => document.querySelector(sel);
+const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
+  del(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } },
+};
+
+function call(action, data) {
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(err => reject(normErr(err)))
+      .api({ action: action, data: data || {}, pin: S.pin });
+  });
+}
+function normErr(err) {
+  const raw = String((err && err.message) || err || 'Something went wrong.');
+  const e = new Error(raw.replace(/^(Exception|Error):\s*/i, '').replace(/^AUTH:\s*/, ''));
+  e.auth = raw.indexOf('AUTH:') >= 0;
+  e.network = /network|connection|failed to fetch|timed? ?out|HTTP 0/i.test(raw);
+  return e;
+}
+
+// ===========================================================================
+// Stat math
+// ===========================================================================
+const BASE = ['GP', 'FG2M', 'FG2A', 'FG3M', 'FG3A', 'FTM', 'FTA', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PF'];
+const BASE_LABELS = {
+  GP: 'Played (1 = yes)', FG2M: '2PT made', FG2A: '2PT attempts', FG3M: '3PT made', FG3A: '3PT attempts',
+  FTM: 'Free throws made', FTA: 'Free throw attempts', REB: 'Rebounds', AST: 'Assists', STL: 'Steals',
+  BLK: 'Blocks', TO: 'Turnovers', PF: 'Fouls',
+};
+// What each tracker button records.
+const TAPS = {
+  '2M': { label: '2PT made', ev: [['FG2M', 1], ['FG2A', 1]] },
+  '2X': { label: '2PT miss', ev: [['FG2A', 1]] },
+  '3M': { label: '3PT made', ev: [['FG3M', 1], ['FG3A', 1]] },
+  '3X': { label: '3PT miss', ev: [['FG3A', 1]] },
+  'FM': { label: 'Free throw made', ev: [['FTM', 1], ['FTA', 1]] },
+  'FX': { label: 'Free throw miss', ev: [['FTA', 1]] },
+  'REB': { label: 'Rebound', ev: [['REB', 1]] },
+  'AST': { label: 'Assist', ev: [['AST', 1]] },
+  'STL': { label: 'Steal', ev: [['STL', 1]] },
+  'BLK': { label: 'Block', ev: [['BLK', 1]] },
+  'TO': { label: 'Turnover', ev: [['TO', 1]] },
+  'PF': { label: 'Foul', ev: [['PF', 1]] },
+};
+
+function n0(v) { return Number(v) || 0; }
+function line(s) {
+  s = s || {};
+  const o = {};
+  BASE.forEach(k => { o[k] = n0(s[k]); });
+  o.pts = 2 * o.FG2M + 3 * o.FG3M + o.FTM;
+  o.fgm = o.FG2M + o.FG3M;
+  o.fga = o.FG2A + o.FG3A;
+  return o;
+}
+function addLine(a, b) { const o = {}; BASE.forEach(k => { o[k] = n0(a[k]) + n0(b[k]); }); return o; }
+const isOpp = k => String(k).indexOf('opp:') === 0;
+function hasAny(s) { return !!s && BASE.some(k => k !== 'GP' && n0(s[k]) !== 0); }
+function played(s) { return !!s && (n0(s.GP) > 0 || hasAny(s)); }
+function pct(m, a) { return a ? (100 * m / a).toFixed(1) : '–'; }
+function pctNum(m, a) { return a ? Math.round(1000 * m / a) / 10 : ''; }
+function avg(v, gp) { return gp ? (v / gp).toFixed(1) : '–'; }
+function teamPts(box) {
+  let p = 0;
+  Object.keys(box || {}).forEach(k => { if (k !== TEAM && !isOpp(k)) p += line(box[k]).pts; });
+  return p;
+}
+// Opponent score = quick +1/+2/+3 points plus points from opponent shots tracked by player.
+function oppPts(box) {
+  let p = n0(box && box[TEAM] && box[TEAM].OPP);
+  Object.keys(box || {}).forEach(k => { if (isOpp(k)) p += line(box[k]).pts; });
+  return p;
+}
+function sideTotals(box, opp) {
+  let tot = {};
+  Object.keys(box || {}).forEach(k => { if (k !== TEAM && isOpp(k) === opp) tot = addLine(tot, box[k]); });
+  return tot;
+}
+function hasOppStats(box) { return Object.keys(box || {}).some(k => isOpp(k) && hasAny(box[k])); }
+function oppPlayerList(roster, box) {
+  const list = (roster || []).map(p => ({ id: 'opp:' + p.number, number: p.number, name: p.name || '', active: true }));
+  Object.keys(box || {}).forEach(k => {
+    if (isOpp(k) && k !== 'opp:team' && !list.some(p => p.id === k)) list.push({ id: k, number: k.slice(4), name: '', active: true });
+  });
+  list.sort(byNumber);
+  list.push({ id: 'opp:team', number: '', name: 'Team / unknown #', active: true });
+  return list;
+}
+
+function fmtDate(d) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d || '');
+  if (!m) return d || '';
+  const dt = new Date(+m[1], +m[2] - 1, +m[3]);
+  return dt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+const LOC = { home: 'vs', away: '@', neutral: 'vs' };
+function gameTitle(g) { return (LOC[g.location] || 'vs') + ' ' + g.opponent; }
+function playerLabel(p) { return ((p.number !== '' ? '#' + p.number + ' ' : '') + p.name).trim(); }
+function can(k) { return !!S.me && (S.me.role === 'coach' || !!(S.me.perms && S.me.perms[k])); }
+function hasDashboard() { return can('viewStats') || can('manage'); }
+function canTrackGame(g) {
+  if (can('manage')) return true;
+  if (g.status === 'final') return false;
+  return g.scorerId === S.me.id || can('trackAny');
+}
+function byNumber(a, b) {
+  const x = a.number === '' ? 999 : +a.number, y = b.number === '' ? 999 : +b.number;
+  return x - y || a.name.localeCompare(b.name);
+}
+
+// ===========================================================================
+// App state
+// ===========================================================================
+const S = {
+  pin: store.get('gcs_pin', ''),
+  teamName: store.get('gcs_team', "GCS Boys' Basketball"),
+  me: null,
+  view: 'loading',
+  pinEntry: '',
+  loginErr: '',
+  data: null,        // coach: everything; scorer: their games
+  tab: 'season',     // coach tab
+  seasonMode: 'avg',
+  sort: { key: 'pts', dir: -1 },
+  playerId: null,    // coach player detail
+  t: null,           // open game (tracker)
+  busy: false,
+};
+
+// ===========================================================================
+// Offline-safe save queue. Every tap is saved on this device first, then sent.
+// Each play has a unique id, so a retry after a dropped connection is never
+// double counted by the server.
+// ===========================================================================
+const Queue = {
+  items: store.get('gcs_queue', []),
+  busy: false, paused: false, timer: null, delay: 2000, error: '', offline: false, waiters: [],
+  save() { store.set('gcs_queue', this.items); updateSync(); },
+  push(evs) { this.items = this.items.concat(evs); this.save(); this.flush(); },
+  count(gameId) { return this.items.filter(e => !gameId || e.gameId === gameId).length; },
+  async flush() {
+    if (this.busy || this.paused || !this.items.length || !S.pin) return;
+    this.busy = true;
+    clearTimeout(this.timer);
+    const gameId = this.items[0].gameId;
+    const batch = this.items.filter(e => e.gameId === gameId).slice(0, 100);
+    let ok = false;
+    try {
+      await call('record', { gameId: gameId, events: batch.map(e => ({ id: e.id, playerId: e.playerId, stat: e.stat, delta: e.delta, time: e.time, fix: !!e.fix })) });
+      const sent = new Set(batch.map(e => e.id));
+      this.items = this.items.filter(e => !sent.has(e.id));
+      this.error = ''; this.offline = false; this.delay = 2000;
+      ok = true;
+    } catch (err) {
+      this.offline = !!err.network;
+      this.error = err.network ? '' : err.message;
+      if (!err.network) {
+        // Don't let one stuck game block plays for another game.
+        this.items = this.items.filter(e => e.gameId !== gameId).concat(this.items.filter(e => e.gameId === gameId));
+      }
+      this.timer = setTimeout(() => this.flush(), this.delay);
+      this.delay = Math.min(this.delay * 2, 30000);
+    }
+    this.busy = false;
+    this.save();
+    this.waiters.splice(0).forEach(f => f());
+    if (ok && this.items.length) this.flush();
+  },
+  idle() { return this.busy ? new Promise(r => this.waiters.push(r)) : Promise.resolve(); },
+  async drain(gameId, ms) {
+    const until = Date.now() + (ms || 15000);
+    while (this.count(gameId) && Date.now() < until) {
+      clearTimeout(this.timer); this.busy || this.flush();
+      await this.idle();
+      if (this.count(gameId)) await new Promise(r => setTimeout(r, 600));
+    }
+    return this.count(gameId) === 0;
+  },
+};
+window.addEventListener('online', () => Queue.flush());
+setInterval(() => Queue.flush(), 15000);
+
+function syncInfo() {
+  const n = Queue.count();
+  if (!n) return { cls: '', text: 'All saved' };
+  if (Queue.error) return { cls: 'error', text: n + ' not saved: ' + Queue.error };
+  if (Queue.offline) return { cls: 'offline', text: 'Offline · ' + n + ' waiting' };
+  return { cls: 'pending', text: 'Saving ' + n + '…' };
+}
+function syncHtml() { const s = syncInfo(); return '<span class="sync ' + s.cls + '" data-sync>' + esc(s.text) + '</span>'; }
+function updateSync() {
+  const s = syncInfo();
+  document.querySelectorAll('[data-sync]').forEach(el => { el.className = 'sync ' + s.cls; el.textContent = s.text; });
+}
+
+// ===========================================================================
+// Rendering
+// ===========================================================================
+function render() {
+  const v = S.view;
+  let html;
+  if (v === 'loading') html = '<div class="loading">Loading…</div>';
+  else if (v === 'login') html = viewLogin();
+  else if (v === 'scorer') html = viewScorerHome();
+  else if (v === 'coach') html = viewCoach();
+  else if (v === 'player') html = viewPlayer();
+  else if (v === 'game') html = viewGame();
+  $('#app').innerHTML = html;
+  updateSync();
+}
+
+let modalState = null;
+function openModal(html, opts) { modalState = opts || {}; $('#modal-root').innerHTML = '<div class="overlay" data-act="overlay"><div class="modal" role="dialog">' + html + '</div></div>'; const f = $('#modal-root input[autofocus]'); if (f) f.focus(); }
+function closeModal() { modalState = null; $('#modal-root').innerHTML = ''; }
+function modalErr(msg) { const el = $('#modal-root .err'); if (el) el.textContent = msg; }
+
+let toastTimer = null;
+function toast(msg, undoPlayId) {
+  clearTimeout(toastTimer);
+  $('#toast-root').innerHTML = '<div class="toast"><span>' + esc(msg) + '</span>' +
+    (undoPlayId ? '<button data-act="undo" data-id="' + esc(undoPlayId) + '">UNDO</button>' : '') + '</div>';
+  toastTimer = setTimeout(() => { $('#toast-root').innerHTML = ''; }, undoPlayId ? 4000 : 2500);
+}
+
+function topBar(title, left, right, tabs) {
+  return '<div class="top"><div class="bar">' + (left || '') + '<h1>' + esc(title) + '</h1>' + (right || '') + '</div>' + (tabs || '') + '</div>';
+}
+
+// ---------------------------------------------------------------------------
+// Login
+// ---------------------------------------------------------------------------
+function viewLogin() {
+  const dots = Array.from({ length: Math.max(4, S.pinEntry.length) }, (_, i) => '<span class="' + (i < S.pinEntry.length ? 'on' : '') + '"></span>').join('');
+  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'];
+  return '<div class="login">' +
+    '<div class="logo">🏀</div>' +
+    '<h1>' + esc(S.teamName) + '</h1><div class="muted">Stat Tracker</div>' +
+    '<div class="dots">' + dots + '</div>' +
+    '<div class="err">' + esc(S.loginErr) + '</div>' +
+    '<div class="keypad">' + keys.map(k =>
+      '<button data-act="key" data-k="' + k + '" aria-label="' + k + '">' + (k === 'clear' ? '<span style="font-size:15px">Clear</span>' : k === 'back' ? '⌫' : k) + '</button>').join('') + '</div>' +
+    '<button class="btn primary big" data-act="login" ' + (S.busy || S.pinEntry.length < 4 ? 'disabled' : '') + '>' + (S.busy ? 'Signing in…' : 'Sign in') + '</button>' +
+    '<p class="muted small" style="margin-top:18px">Parents: use the PIN the coach gave you.</p>' +
+    '</div>';
+}
+
+// ---------------------------------------------------------------------------
+// Scorer (parent) home
+// ---------------------------------------------------------------------------
+function viewScorerHome() {
+  const d = S.data || { games: [] };
+  const games = d.games || [];
+  return topBar(S.teamName, '', '<button class="link" data-act="logout">Sign out</button>') +
+    '<div class="wrap">' +
+    '<div class="row" style="margin-top:14px"><h2 style="font-size:20px">Hi, ' + esc(S.me.name) + '</h2><span class="spacer"></span>' + syncHtml() + '</div>' +
+    '<div class="section-title">Games you are keeping stats for</div>' +
+    (games.length ? games.map(g =>
+      '<div class="card"><div class="row"><div class="grow" style="flex:1"><div style="font-weight:700;font-size:17px">' + esc(gameTitle(g)) + '</div>' +
+      '<div class="muted small">' + esc(fmtDate(g.date)) + ' · ' + esc(g.location) + '</div></div>' + statusChip(g.status) + '</div>' +
+      '<button class="btn primary big" style="margin-top:12px" data-act="openGame" data-id="' + esc(g.id) + '">' + (g.status === 'live' ? 'Continue tracking' : 'Start tracking') + '</button></div>'
+    ).join('') : '<div class="card empty">No games are assigned to you right now.<br>Coach will assign you a game.</div>') +
+    '<button class="btn" style="margin-top:16px" data-act="refreshScorer">Refresh</button>' +
+    '</div>';
+}
+
+function statusChip(status) { return '<span class="chip ' + status + '">' + (status === 'scheduled' ? 'Upcoming' : status) + '</span>'; }
+
+// ---------------------------------------------------------------------------
+// Game screen (tracker + box score), used by parents and the coach
+// ---------------------------------------------------------------------------
+function gamePlayers() {
+  const t = S.t;
+  return t.players.slice().sort(byNumber);
+}
+function oppPlayers() { return oppPlayerList(S.t.game.oppRoster, S.t.box); }
+function findAnyPlayer(id) {
+  return isOpp(id) ? oppPlayers().find(p => p.id === id) : S.t.players.find(p => p.id === id);
+}
+function anyLabel(id) {
+  const p = findAnyPlayer(id);
+  if (!p) return 'Player';
+  return isOpp(id) ? 'Opp ' + (p.number !== '' ? '#' + p.number : 'team') : playerLabel(p);
+}
+function onCourtPlayers() {
+  const t = S.t;
+  if (t.side === 'opp') return oppPlayers();
+  const ps = gamePlayers();
+  const any = ps.some(p => n0((t.box[p.id] || {}).GP) > 0);
+  return any ? ps.filter(p => n0((t.box[p.id] || {}).GP) > 0 || hasAny(t.box[p.id])) : ps.filter(p => p.active);
+}
+
+function viewGame() {
+  const t = S.t, g = t.game, coach = can('manage');
+  const left = '<button class="link" data-act="leaveGame">‹ Back</button>';
+  const tabs = '<div class="tabs">' + (t.canTrack ? '<button class="' + (t.tab === 'track' ? 'on' : '') + '" data-act="gameTab" data-tab="track">Track</button>' : '') +
+    '<button class="' + (t.tab === 'box' ? 'on' : '') + '" data-act="gameTab" data-tab="box">Box score</button>' +
+    '</div>';
+  const scoreboard = '<div class="score"><div class="inner">' +
+    '<div class="team"><div class="nm">' + esc(S.teamName) + '</div><div class="pts">' + teamPts(t.box) + '</div></div>' +
+    '<div class="dash">–</div>' +
+    '<div class="team"><div class="nm">' + esc(g.opponent) + '</div><div class="pts">' + oppPts(t.box) + '</div>' +
+    (t.canTrack ? '<div class="opp-pad" aria-label="Opponent points">' : '<div class="hidden">') + '<button data-act="opp" data-d="1">+1</button><button data-act="opp" data-d="2">+2</button><button data-act="opp" data-d="3">+3</button><button data-act="opp" data-d="-1" ' + (oppPts(t.box) ? '' : 'disabled') + '>−1</button></div></div>' +
+    '</div></div>';
+  const head = topBar(gameTitle(g), left, t.canTrack ? syncHtml() : '', tabs) + scoreboard;
+  const body = t.tab === 'track' && t.canTrack ? viewTracker() : viewGameBox(coach);
+  return head + '<div class="wrap">' + body + '</div>';
+}
+
+function viewTracker() {
+  const t = S.t;
+  const ps = onCourtPlayers();
+  const opp = t.side === 'opp';
+  const sel = t.sel && findAnyPlayer(t.sel);
+  const armed = t.armed && TAPS[t.armed];
+  let hint;
+  if (sel) hint = '<b>' + esc(anyLabel(sel.id)) + '</b>: tap a stat';
+  else if (armed) hint = '<b>' + esc(armed.label) + '</b>: tap the player';
+  else hint = opp ? 'Tracking <b>' + esc(t.game.opponent) + '</b>: tap a number, then a stat' : 'Tap a player, then a stat';
+  const tiles = ps.map(p => {
+    const l = line(t.box[p.id]);
+    const fc = l.PF >= 5 ? 'foul5' : l.PF >= 4 ? 'foul4' : '';
+    return '<button class="pbtn ' + (p.id === t.sel ? 'sel' : '') + '" data-act="pickPlayer" data-id="' + esc(p.id) + '">' +
+      '<div class="n">' + (p.number !== '' ? '#' + esc(p.number) : (p.id === 'opp:team' ? 'TEAM' : '–')) + '</div>' +
+      '<div class="nm">' + esc(p.id === 'opp:team' ? 'Unknown #' : p.name) + '</div>' +
+      '<div class="ln">' + l.pts + ' pts · <span class="' + fc + '">' + l.PF + ' F</span></div></button>';
+  }).join('');
+  const b = (code, top, bottom, cls) => '<button class="sbtn ' + (cls || '') + (t.armed === code ? ' armed' : '') + '" data-act="stat" data-code="' + code + '">' + top + (bottom ? '<small>' + bottom + '</small>' : '') + '</button>';
+  const pad = '<div class="pad">' +
+    b('2M', '2PT', 'MADE', 'make') + b('2X', '2PT', 'MISS', 'miss') + b('3M', '3PT', 'MADE', 'make') + b('3X', '3PT', 'MISS', 'miss') +
+    b('FM', 'FT', 'MADE', 'make') + b('FX', 'FT', 'MISS', 'miss') + b('REB', 'REB') + b('AST', 'AST') +
+    b('STL', 'STL') + b('BLK', 'BLK') + b('TO', 'TO', 'TURNOVER') + b('PF', 'FOUL') +
+    '</div>';
+  const plays = t.plays.slice(0, 12);
+  const playsHtml = plays.length ? plays.map(p => {
+    const who = p.playerId ? anyLabel(p.playerId) : (p.events[0] && p.events[0].stat === 'OPP' ? g_opp() : 'Team');
+    return '<div class="list-item ' + (p.undone ? 'undone' : '') + '"><div class="grow"><b>' + esc(who) + '</b> · ' + esc(p.label) +
+      '<div class="muted small">' + esc(new Date(p.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) + '</div></div>' +
+      (p.undone ? '<span class="muted small">undone</span>' : '<button class="btn sm" data-act="undo" data-id="' + esc(p.id) + '">Undo</button>') + '</div>';
+  }).join('') : '<div class="muted small" style="padding:8px 0">Plays you enter will show here so you can undo mistakes.</div>';
+  const sideToggle = '<div class="row" style="margin-top:12px"><div class="seg side-seg">' +
+    '<button class="' + (opp ? '' : 'on') + '" data-act="side" data-side="us">' + esc(shortTeam()) + '</button>' +
+    '<button class="' + (opp ? 'on' : '') + '" data-act="side" data-side="opp">' + esc(t.game.opponent) + '</button></div></div>';
+  const oppNote = opp && !(t.game.oppRoster || []).length
+    ? '<div class="note">Add their jersey numbers to track individuals, or just use <b>TEAM</b> for all of them.</div>' : '';
+  return sideToggle + '<div class="hint">' + hint + '</div>' + oppNote +
+    (ps.length ? '<div class="players">' + tiles + '</div>' : '<div class="card empty">No players on the roster yet.</div>') +
+    pad +
+    '<div class="row" style="margin-top:12px">' + (opp ? '<button class="btn sm" data-act="oppRoster">Opponent numbers</button>' : '<button class="btn sm" data-act="whosHere">Who\'s playing?</button>') + '<span class="spacer"></span>' +
+    (t.sel || t.armed ? '<button class="btn sm" data-act="clearSel">Cancel selection</button>' : '') + '</div>' +
+    '<div class="card plays"><h2>Recent plays</h2>' + playsHtml + '</div>';
+}
+function shortTeam() { return (S.teamName.split(/\s+/)[0] || 'Us').slice(0, 14); }
+function g_opp() { return S.t ? S.t.game.opponent : 'Opponent'; }
+
+function boxTable(players, box, clickable, opp) {
+  const rows = players.filter(p => played(box[p.id]));
+  if (!opp) rows.sort(byNumber);
+  let tot = {};
+  const tr = rows.map(p => {
+    const s = box[p.id] || {};
+    tot = addLine(tot, s);
+    const l = line(s);
+    return '<tr class="' + (clickable ? 'click' : '') + '" ' + (clickable ? 'data-act="editLine" data-id="' + esc(p.id) + '"' : '') + '>' +
+      '<td><span class="pnum">' + (p.number !== '' ? '#' + esc(p.number) : '') + '</span><span class="pname">' + esc(p.id === 'opp:team' ? 'Team / unknown #' : p.name) + '</span></td>' +
+      boxCells(l) + '</tr>';
+  }).join('');
+  const lt = line(tot);
+  return '<div class="table-wrap"><table><thead><tr><th>Player</th><th>PTS</th><th>FG</th><th>FG%</th><th>3P</th><th>FT</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TO</th><th>PF</th></tr></thead><tbody>' +
+    (tr || '<tr><td colspan="12" class="muted" style="text-align:center;position:static">No stats yet</td></tr>') +
+    (rows.length ? '<tr class="total"><td>Team</td>' + boxCells(lt) + '</tr>' : '') +
+    '</tbody></table></div>';
+}
+function boxCells(l) {
+  return '<td><b>' + l.pts + '</b></td><td>' + l.fgm + '-' + l.fga + '</td><td>' + pct(l.fgm, l.fga) + '</td><td>' + l.FG3M + '-' + l.FG3A + '</td><td>' + l.FTM + '-' + l.FTA + '</td>' +
+    '<td>' + l.REB + '</td><td>' + l.AST + '</td><td>' + l.STL + '</td><td>' + l.BLK + '</td><td>' + l.TO + '</td><td>' + l.PF + '</td>';
+}
+
+function viewGameBox(coach) {
+  const t = S.t, g = t.game;
+  const unplayed = t.canFix ? gamePlayers().filter(p => !played(t.box[p.id])) : [];
+  const opps = oppPlayerList(g.oppRoster, t.box);
+  const quick = n0(t.box[TEAM] && t.box[TEAM].OPP);
+  const oppCard = (hasOppStats(t.box) || (t.canFix && (g.oppRoster || []).length))
+    ? '<div class="card"><h2>' + esc(g.opponent) + '</h2>' + boxTable(opps, t.box, t.canFix, true) +
+      (quick ? '<p class="muted small">Plus ' + quick + ' point' + (quick === 1 ? '' : 's') + ' from the quick +1/+2/+3 buttons.</p>' : '') +
+      (t.canFix ? '<div class="row wrap-row" style="margin-top:8px">' + opps.filter(p => !hasAny(t.box[p.id])).map(p => '<button class="btn sm" data-act="editLine" data-id="' + esc(p.id) + '">' + esc(p.number !== '' ? '#' + p.number : 'Team') + '</button>').join('') + '</div>' : '') +
+      '</div>'
+    : '';
+  let statusHtml;
+  if (!t.canTrack) {
+    statusHtml = '';
+  } else if (coach) {
+    statusHtml = '<div class="row wrap-row"><span class="muted small">Status</span><div class="seg">' +
+      ['scheduled', 'live', 'final'].map(s => '<button class="' + (g.status === s ? 'on' : '') + '" data-act="setStatus" data-s="' + s + '">' + (s === 'scheduled' ? 'Upcoming' : s[0].toUpperCase() + s.slice(1)) + '</button>').join('') + '</div></div>';
+  } else {
+    statusHtml = '<button class="btn primary big" data-act="endGame">Game over: submit final stats</button>' +
+      '<p class="muted small">After you submit, the stats go to the coach and this game closes on your phone.</p>';
+  }
+  return '<div class="card"><div class="row"><h2 class="grow" style="flex:1">' + esc(fmtDate(g.date)) + '</h2>' + statusChip(g.status) + '</div>' +
+    (t.canFix ? '<p class="muted small" style="margin:0 0 8px">Tap a player to fix their numbers.</p>' : '') +
+    boxTable(t.players, t.box, t.canFix) +
+    (unplayed.length ? '<div class="row wrap-row" style="margin-top:12px"><span class="muted small">Add a player:</span>' + unplayed.map(p => '<button class="btn sm" data-act="editLine" data-id="' + esc(p.id) + '">' + esc(playerLabel(p)) + '</button>').join('') + '</div>' : '') +
+    '</div>' + oppCard + (statusHtml ? '<div class="card">' + statusHtml + '</div>' : '');
+}
+
+// ---------------------------------------------------------------------------
+// Coach
+// ---------------------------------------------------------------------------
+function coachTabList() {
+  const tabs = [['season', 'Season'], ['games', 'Games']];
+  if (can('manage')) tabs.push(['roster', 'Roster']);
+  if (S.me.role === 'coach') tabs.push(['parents', 'Access']);
+  return tabs;
+}
+function coachTabs() {
+  const tabs = coachTabList();
+  return '<div class="tabs">' + tabs.map(([k, l]) => '<button class="' + (S.tab === k ? 'on' : '') + '" data-act="tab" data-tab="' + k + '">' + l + '</button>').join('') + '</div>';
+}
+function viewCoach() {
+  const right = '<button class="link" data-act="refresh">Refresh</button><button class="link" data-act="logout">Sign out</button>';
+  let body;
+  if (S.tab === 'season') body = viewSeason();
+  else if (S.tab === 'games') body = viewGames();
+  else if (S.tab === 'roster' && can('manage')) body = viewRoster();
+  else if (S.tab === 'parents' && S.me.role === 'coach') body = viewParents();
+  else body = viewSeason();
+  const title = S.me.role === 'coach' ? S.teamName : S.teamName + ' · ' + S.me.name;
+  return topBar(title, '', right, coachTabs()) + '<div class="wrap">' + body + '</div>';
+}
+
+function gamesWithStats() {
+  const d = S.data;
+  return d.games.filter(g => d.boxes[g.id] && Object.keys(d.boxes[g.id]).some(k => k !== TEAM && !isOpp(k) && played(d.boxes[g.id][k])))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function seasonTable() {
+  const d = S.data;
+  const games = gamesWithStats();
+  return d.players.map(p => {
+    let tot = {}, gp = 0;
+    games.forEach(g => {
+      const s = d.boxes[g.id][p.id];
+      if (played(s)) { gp++; tot = addLine(tot, s); }
+    });
+    return { p: p, gp: gp, l: line(tot) };
+  }).filter(r => r.gp || r.p.active);
+}
+
+function teamRecord() {
+  const d = S.data;
+  let w = 0, l = 0, pf = 0, pa = 0, n = 0;
+  d.games.filter(g => g.status === 'final').forEach(g => {
+    const box = d.boxes[g.id] || {};
+    const us = teamPts(box), them = oppPts(box);
+    pf += us; pa += them; n++;
+    if (us > them) w++; else if (us < them) l++;
+  });
+  return { w: w, l: l, ppg: n ? (pf / n).toFixed(1) : '–', oppg: n ? (pa / n).toFixed(1) : '–', n: n };
+}
+
+const SEASON_COLS = [
+  { k: 'gp', l: 'GP', v: r => r.gp, raw: true },
+  { k: 'pts', l: 'PTS', v: r => r.l.pts },
+  { k: 'reb', l: 'REB', v: r => r.l.REB },
+  { k: 'ast', l: 'AST', v: r => r.l.AST },
+  { k: 'stl', l: 'STL', v: r => r.l.STL },
+  { k: 'blk', l: 'BLK', v: r => r.l.BLK },
+  { k: 'to', l: 'TO', v: r => r.l.TO },
+  { k: 'fg', l: 'FG', v: r => r.l.fgm, pair: r => [r.l.fgm, r.l.fga] },
+  { k: 'fgp', l: 'FG%', v: r => (r.l.fga ? r.l.fgm / r.l.fga : -1), pct: r => pct(r.l.fgm, r.l.fga) },
+  { k: '3p', l: '3P', v: r => r.l.FG3M, pair: r => [r.l.FG3M, r.l.FG3A] },
+  { k: '3pp', l: '3P%', v: r => (r.l.FG3A ? r.l.FG3M / r.l.FG3A : -1), pct: r => pct(r.l.FG3M, r.l.FG3A) },
+  { k: 'ft', l: 'FT', v: r => r.l.FTM, pair: r => [r.l.FTM, r.l.FTA] },
+  { k: 'ftp', l: 'FT%', v: r => (r.l.FTA ? r.l.FTM / r.l.FTA : -1), pct: r => pct(r.l.FTM, r.l.FTA) },
+  { k: 'pf', l: 'PF', v: r => r.l.PF },
+];
+function colText(c, r, perGame) {
+  if (c.pct) return c.pct(r);
+  if (c.raw) return String(c.v(r));
+  if (c.pair) { const [m, a] = c.pair(r); return perGame ? avg(m, r.gp) + '-' + avg(a, r.gp) : m + '-' + a; }
+  return perGame ? avg(c.v(r), r.gp) : String(c.v(r));
+}
+function sortVal(c, r, perGame) {
+  if (c.pct || c.raw) return c.v(r);
+  return perGame ? (r.gp ? c.v(r) / r.gp : -1) : c.v(r);
+}
+
+function viewSeason() {
+  const d = S.data;
+  if (!d.players.length) {
+    return can('manage') ? '<div class="card empty" style="margin-top:16px"><h2>Welcome, Coach!</h2><p>Start by adding your players on the <b>Roster</b> tab, then add parents and games.</p>' +
+      '<button class="btn primary" data-act="tab" data-tab="roster">Add players</button></div>' : '<div class="card empty">No stats yet.</div>';
+  }
+  const rec = teamRecord();
+  const rows = seasonTable();
+  const perGame = S.seasonMode === 'avg';
+  const leaders = [['PTS', r => r.l.pts], ['REB', r => r.l.REB], ['AST', r => r.l.AST], ['STL', r => r.l.STL]].map(([lbl, f]) => {
+    const best = rows.filter(r => r.gp).sort((a, b) => f(b) / b.gp - f(a) / a.gp)[0];
+    return '<div class="tile"><div class="label">' + lbl + ' leader</div><div class="value">' + (best ? avg(f(best), best.gp) : '–') + '</div><div class="sub">' + (best ? esc(playerLabel(best.p)) : 'No games yet') + '</div></div>';
+  }).join('');
+  const col = SEASON_COLS.find(c => c.k === S.sort.key) || SEASON_COLS[1];
+  rows.sort((a, b) => (sortVal(col, a, perGame) - sortVal(col, b, perGame)) * S.sort.dir || byNumber(a.p, b.p));
+  const head = '<tr><th>Player</th>' + SEASON_COLS.map(c => '<th class="sortable ' + (c.k === S.sort.key ? 'sorted' : '') + '" data-act="sort" data-k="' + c.k + '">' + c.l + (c.k === S.sort.key ? (S.sort.dir < 0 ? ' ▾' : ' ▴') : '') + '</th>').join('') + '</tr>';
+  const body = rows.map(r => '<tr class="click" data-act="openPlayer" data-id="' + esc(r.p.id) + '"><td><span class="pnum">' + (r.p.number !== '' ? '#' + esc(r.p.number) : '') + '</span><span class="pname">' + esc(r.p.name) + '</span></td>' +
+    SEASON_COLS.map(c => '<td>' + (c.k === 'pts' ? '<b>' + colText(c, r, perGame) + '</b>' : colText(c, r, perGame)) + '</td>').join('') + '</tr>').join('');
+  const nGames = gamesWithStats().length;
+  return '<div class="tiles">' +
+    '<div class="tile"><div class="label">Record</div><div class="value">' + rec.w + '–' + rec.l + '</div><div class="sub">' + rec.n + ' final game' + (rec.n === 1 ? '' : 's') + '</div></div>' +
+    '<div class="tile"><div class="label">Points / game</div><div class="value">' + rec.ppg + '</div><div class="sub">Allowed ' + rec.oppg + '</div></div>' +
+    leaders + '</div>' +
+    '<div class="card"><div class="row wrap-row" style="margin-bottom:8px"><h2 style="margin:0;flex:1">Player stats</h2>' +
+    '<div class="seg"><button class="' + (perGame ? 'on' : '') + '" data-act="seasonMode" data-m="avg">Per game</button><button class="' + (!perGame ? 'on' : '') + '" data-act="seasonMode" data-m="tot">Totals</button></div></div>' +
+    '<p class="muted small" style="margin:0 0 6px">' + nGames + ' game' + (nGames === 1 ? '' : 's') + ' with stats. Tap a column to sort, or a player to see their game log.</p>' +
+    '<div class="table-wrap"><table><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div></div>' +
+    oppComparison() +
+    (S.me.role !== 'coach' ? '' : '<div class="card"><h2>Google Sheet</h2><p class="muted small" style="margin-top:0">Copy these numbers into <b>Season Stats</b> and <b>Game Log</b> tabs in your spreadsheet to sort, chart, or print.</p>' +
+    '<div class="row wrap-row"><button class="btn primary" data-act="writeReport">Update stats in Google Sheet</button>' +
+    (d.sheetUrl ? '<a class="btn" href="' + esc(d.sheetUrl) + '" target="_blank" rel="noopener">Open spreadsheet</a>' : '') + '</div></div>');
+}
+
+// Us vs. opponents, using only games where opponent stats were tracked.
+function oppComparison() {
+  const d = S.data;
+  const games = gamesWithStats().filter(g => hasOppStats(d.boxes[g.id]));
+  if (!games.length) return '';
+  let us = {}, them = {}, usPts = 0, themPts = 0;
+  games.forEach(g => {
+    const b = d.boxes[g.id];
+    us = addLine(us, sideTotals(b, false)); them = addLine(them, sideTotals(b, true));
+    usPts += teamPts(b); themPts += oppPts(b);
+  });
+  const n = games.length, a = line(us), o = line(them);
+  const rows = [
+    ['Points', avg(usPts, n), avg(themPts, n)],
+    ['FG%', pct(a.fgm, a.fga), pct(o.fgm, o.fga)],
+    ['3P%', pct(a.FG3M, a.FG3A), pct(o.FG3M, o.FG3A)],
+    ['3PM', avg(a.FG3M, n), avg(o.FG3M, n)],
+    ['FT%', pct(a.FTM, a.FTA), pct(o.FTM, o.FTA)],
+    ['FTA', avg(a.FTA, n), avg(o.FTA, n)],
+    ['Rebounds', avg(a.REB, n), avg(o.REB, n)],
+    ['Assists', avg(a.AST, n), avg(o.AST, n)],
+    ['Steals', avg(a.STL, n), avg(o.STL, n)],
+    ['Blocks', avg(a.BLK, n), avg(o.BLK, n)],
+    ['Turnovers', avg(a.TO, n), avg(o.TO, n)],
+    ['Fouls', avg(a.PF, n), avg(o.PF, n)],
+  ];
+  return '<div class="card"><h2>Us vs. opponents</h2><p class="muted small" style="margin-top:0">Per game, from the ' + n + ' game' + (n === 1 ? '' : 's') + ' where opponent stats were kept.</p>' +
+    '<div class="table-wrap"><table><thead><tr><th>Per game</th><th>' + esc(shortTeam()) + '</th><th>Opponents</th></tr></thead><tbody>' +
+    rows.map(r => '<tr><td>' + r[0] + '</td><td><b>' + r[1] + '</b></td><td>' + r[2] + '</td></tr>').join('') + '</tbody></table></div></div>';
+}
+
+function viewPlayer() {
+  const d = S.data;
+  const p = d.players.find(x => x.id === S.playerId);
+  if (!p) { S.view = 'coach'; return viewCoach(); }
+  const games = gamesWithStats().filter(g => played(d.boxes[g.id][p.id]));
+  let tot = {};
+  games.forEach(g => { tot = addLine(tot, d.boxes[g.id][p.id]); });
+  const l = line(tot), gp = games.length;
+  const tiles = [['PPG', avg(l.pts, gp)], ['RPG', avg(l.REB, gp)], ['APG', avg(l.AST, gp)], ['SPG', avg(l.STL, gp)], ['FG%', pct(l.fgm, l.fga)], ['3P%', pct(l.FG3M, l.FG3A)], ['FT%', pct(l.FTM, l.FTA)], ['TO/G', avg(l.TO, gp)]]
+    .map(([k, v]) => '<div class="tile"><div class="label">' + k + '</div><div class="value">' + v + '</div></div>').join('');
+  const rows = games.slice().reverse().map(g => {
+    const gl = line(d.boxes[g.id][p.id]);
+    return '<tr class="click" data-act="openBox" data-id="' + esc(g.id) + '"><td>' + esc(fmtDate(g.date)) + ' <span class="muted">' + esc(gameTitle(g)) + '</span></td>' + boxCells(gl) + '</tr>';
+  }).join('');
+  return topBar(playerLabel(p), '<button class="link" data-act="back">‹ Back</button>', '') +
+    '<div class="wrap"><div class="tiles">' + tiles + '</div>' +
+    '<div class="card"><h2>Game log</h2><p class="muted small" style="margin-top:0">' + gp + ' game' + (gp === 1 ? '' : 's') + ' played · ' + l.pts + ' points total</p>' +
+    '<div class="table-wrap"><table><thead><tr><th>Game</th><th>PTS</th><th>FG</th><th>FG%</th><th>3P</th><th>FT</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TO</th><th>PF</th></tr></thead><tbody>' +
+    (rows || '<tr><td colspan="12" class="muted">No games yet</td></tr>') +
+    (gp ? '<tr class="total"><td>Season</td>' + boxCells(l) + '</tr>' : '') +
+    '</tbody></table></div></div></div>';
+}
+
+function parentName(id) {
+  const p = S.data.parents.find(x => x.id === id);
+  return p ? p.name : '';
+}
+
+function viewGames() {
+  const d = S.data;
+  const games = d.games.slice().sort((a, b) => b.date.localeCompare(a.date));
+  const upcoming = games.filter(g => g.status !== 'final').reverse();
+  const done = games.filter(g => g.status === 'final');
+  const card = g => {
+    const box = d.boxes[g.id] || {};
+    const us = teamPts(box), them = oppPts(box);
+    const result = g.status === 'final' ? (us > them ? '<span class="chip win">W</span>' : us < them ? '<span class="chip loss">L</span>' : '<span class="chip">T</span>') : statusChip(g.status);
+    const scorer = g.scorerId ? parentName(g.scorerId) : '';
+    return '<div class="card"><div class="row"><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:17px">' + esc(gameTitle(g)) + '</div>' +
+      '<div class="muted small">' + esc(fmtDate(g.date)) + ' · Stats: ' + (scorer ? esc(scorer) : '<b>no parent assigned</b>') + '</div></div>' +
+      '<div style="text-align:right">' + result + (g.status !== 'scheduled' ? '<div style="font-weight:800;font-size:18px;margin-top:2px">' + us + '–' + them + '</div>' : '') + '</div></div>' +
+      '<div class="row wrap-row" style="margin-top:10px">' +
+      (canTrackGame(g) ? '<button class="btn sm primary" data-act="openGame" data-id="' + esc(g.id) + '">Track</button>' : '') +
+      '<button class="btn sm" data-act="openBox" data-id="' + esc(g.id) + '">Box score</button>' +
+      (can('manage') ? '<button class="btn sm" data-act="editGame" data-id="' + esc(g.id) + '">Edit</button>' : '') + '</div></div>';
+  };
+  return (can('manage') ? '<div class="row" style="margin-top:14px"><span class="spacer"></span><button class="btn" data-act="bulkGames">Add many</button><button class="btn primary" data-act="editGame">+ New game</button></div>' : '') +
+    '<div class="section-title">Upcoming &amp; in progress</div>' + (upcoming.length ? upcoming.map(card).join('') : '<div class="card empty">No upcoming games.</div>') +
+    (done.length ? '<div class="section-title">Final</div>' + done.map(card).join('') : '');
+}
+
+function viewRoster() {
+  const d = S.data;
+  const ps = d.players.slice().sort(byNumber);
+  const active = ps.filter(p => p.active), inactive = ps.filter(p => !p.active);
+  const item = p => '<div class="list-item"><div class="jersey ' + (p.active ? '' : 'off') + '">' + esc(p.number || '–') + '</div><div class="grow"><div style="font-weight:600">' + esc(p.name) + '</div>' +
+    (p.active ? '' : '<div class="muted small">Inactive (keeps past stats)</div>') + '</div><button class="btn sm" data-act="editPlayer" data-id="' + esc(p.id) + '">Edit</button></div>';
+  return '<div class="row wrap-row" style="margin-top:14px"><span class="spacer"></span><button class="btn" data-act="bulkPlayers">Add many</button><button class="btn primary" data-act="editPlayer">+ Add player</button></div>' +
+    '<div class="card">' + (active.length ? active.map(item).join('') : '<div class="empty">No players yet.</div>') + '</div>' +
+    (inactive.length ? '<div class="section-title">Inactive</div><div class="card">' + inactive.map(item).join('') + '</div>' : '') +
+    (S.me.role !== 'coach' ? '' : '<div class="section-title">Team settings</div><div class="card"><form data-form="settings">' +
+    '<label class="field">Team name<input name="teamName" value="' + esc(d.settings.teamName) + '" maxlength="60"></label>' +
+    '<label class="field">Season<input name="season" value="' + esc(d.settings.season) + '" maxlength="20"></label>' +
+    '<div class="err"></div><button class="btn primary" type="submit">Save</button>' +
+    '<p class="muted small">To change your coach PIN, edit <b>Coach PIN</b> on the Settings tab of the spreadsheet.</p></form></div>');
+}
+
+const PERM_INFO = [
+  ['trackAny', 'Keep stats for any game', 'Not just the games you assign them.'],
+  ['fixStats', 'Fix box score numbers', 'Use − / + in the box score. Anyone can always undo their own taps.'],
+  ['viewStats', 'See season stats (read only)', 'Season table, player game logs, and every box score. Never PINs.'],
+  ['manage', 'Assistant coach', 'Add and edit players and games, assign stat keepers, fix any game. Cannot see PINs or change access.'],
+];
+function permSummary(p) {
+  const on = PERM_INFO.filter(([k]) => p.perms && p.perms[k]).map(([, l]) => l);
+  return on.length ? on.join(' · ') : 'Only games you assign';
+}
+function viewParents() {
+  const d = S.data;
+  const ps = d.parents.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const count = id => d.games.filter(g => g.scorerId === id && g.status !== 'final').length;
+  const item = p => '<div class="list-item"><div class="grow"><div style="font-weight:600">' + esc(p.name) + (p.active ? '' : ' <span class="chip">off</span>') + '</div>' +
+    '<div class="muted small">PIN <span class="pin">' + esc(p.pin) + '</span> · ' + count(p.id) + ' assigned game' + (count(p.id) === 1 ? '' : 's') + '</div>' +
+    '<div class="small" style="margin-top:2px">' + esc(permSummary(p)) + '</div></div>' +
+    '<button class="btn sm" data-act="editParent" data-id="' + esc(p.id) + '">Edit</button></div>';
+  return '<div class="card"><h2>Who can do what</h2>' +
+    '<p class="small" style="margin-top:0">Everyone you add gets a 4-digit PIN. By default a person can <b>only keep stats for games you assign them</b>, and only until the game is final. ' +
+    'They never see season stats. Tap <b>Edit</b> on a person to give them more access.</p>' +
+    '<p class="small muted">Only you (the coach PIN) can see PINs, add or remove people, change access, delete games, or export to the spreadsheet.</p>' +
+    (d.appUrl ? '<div class="copybox"><input readonly value="' + esc(d.appUrl) + '" id="appUrl"><button class="btn sm" data-act="copyUrl">Copy link</button></div>' : '') + '</div>' +
+    '<div class="row" style="margin-top:14px"><span class="spacer"></span><button class="btn primary" data-act="editParent">+ Add person</button></div>' +
+    '<div class="card">' + (ps.length ? ps.map(item).join('') : '<div class="empty">No one yet. Add the parents who will keep stats.</div>') + '</div>';
+}
+
+// ===========================================================================
+// Forms (modals)
+// ===========================================================================
+function playerForm(p) {
+  p = p || { id: '', number: '', name: '', active: true };
+  openModal('<form data-form="player"><h2>' + (p.id ? 'Edit player' : 'Add player') + '</h2>' +
+    '<input type="hidden" name="id" value="' + esc(p.id) + '">' +
+    '<label class="field">Jersey number<input name="number" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="' + esc(p.number) + '" ' + (p.id ? '' : 'autofocus') + '></label>' +
+    '<label class="field">Name<input name="name" maxlength="60" required value="' + esc(p.name) + '"></label>' +
+    (p.id ? '<label class="check"><input type="checkbox" name="active" ' + (p.active ? 'checked' : '') + '> Active on roster</label>' : '') +
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Save</button></div>' +
+    (p.id ? '<button type="button" class="btn danger big" style="margin-top:10px" data-act="deletePlayer" data-id="' + esc(p.id) + '">Remove player</button>' : '') +
+    '</form>');
+}
+
+function gameForm(g) {
+  const d = S.data;
+  g = g || { id: '', date: todayISO(), opponent: '', location: 'home', scorerId: '', status: 'scheduled', notes: '', oppRoster: [] };
+  const parents = d.parents.filter(p => p.active || p.id === g.scorerId);
+  openModal('<form data-form="game"><h2>' + (g.id ? 'Edit game' : 'New game') + '</h2>' +
+    '<input type="hidden" name="id" value="' + esc(g.id) + '"><input type="hidden" name="status" value="' + esc(g.status) + '">' +
+    '<label class="field">Opponent<input name="opponent" maxlength="60" required value="' + esc(g.opponent) + '" ' + (g.id ? '' : 'autofocus') + '></label>' +
+    '<label class="field">Date<input type="date" name="date" required value="' + esc(g.date) + '"></label>' +
+    '<label class="field">Location<select name="location">' + ['home', 'away', 'neutral'].map(l => '<option value="' + l + '" ' + (g.location === l ? 'selected' : '') + '>' + l[0].toUpperCase() + l.slice(1) + '</option>').join('') + '</select></label>' +
+    '<label class="field">Who keeps stats?<select name="scorerId"><option value="">Coach</option>' +
+    parents.map(p => '<option value="' + esc(p.id) + '" ' + (g.scorerId === p.id ? 'selected' : '') + '>' + esc(p.name) + '</option>').join('') + '</select></label>' +
+    (parents.length ? '' : '<div class="note">Add parents on the Parents tab to assign them games.</div>') +
+    '<label class="field">Opponent jersey numbers <span class="muted small">(optional)</span><textarea name="oppRoster" rows="3" placeholder="4 Smith, 12, 23 Jones">' + esc((g.oppRoster || []).map(p => (p.number + ' ' + p.name).trim()).join(', ')) + '</textarea></label>' +
+    '<label class="field">Notes<input name="notes" maxlength="200" value="' + esc(g.notes) + '" placeholder="Optional"></label>' +
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Save</button></div>' +
+    (g.id ? '<button type="button" class="btn danger big" style="margin-top:10px" data-act="deleteGame" data-id="' + esc(g.id) + '">Delete game and its stats</button>' : '') +
+    '</form>');
+}
+
+function parentForm(p) {
+  p = p || { id: '', name: '', active: true, pin: '', perms: { fixStats: true } };
+  const perms = p.perms || {};
+  openModal('<form data-form="parent"><h2>' + (p.id ? 'Edit person' : 'Add person') + '</h2>' +
+    '<input type="hidden" name="id" value="' + esc(p.id) + '">' +
+    '<label class="field">Name<input name="name" maxlength="60" required value="' + esc(p.name) + '" ' + (p.id ? '' : 'autofocus') + ' placeholder="e.g. Jamie (Ava\'s mom)"></label>' +
+    (p.id ? '<p>PIN <span class="pin">' + esc(p.pin) + '</span></p><label class="check"><input type="checkbox" name="newPin"> Give them a new PIN (old one stops working)</label>' +
+      '<label class="check"><input type="checkbox" name="active" ' + (p.active ? 'checked' : '') + '> Can sign in</label>' : '<p class="muted small">A 4-digit PIN is created automatically.</p>') +
+    '<div class="section-title" style="margin-top:14px">Access</div><p class="small" style="margin:4px 0 0">Always: keep stats for games you assign them.</p>' +
+    PERM_INFO.map(([k, l, desc]) => '<label class="check" style="align-items:flex-start"><input type="checkbox" name="perm_' + k + '" ' + (perms[k] ? 'checked' : '') + '><span>' + l + '<span class="muted small" style="display:block;font-weight:400">' + desc + '</span></span></label>').join('') +
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Save</button></div>' +
+    (p.id ? '<button type="button" class="btn danger big" style="margin-top:10px" data-act="deleteParent" data-id="' + esc(p.id) + '">Remove person</button>' : '') +
+    '</form>');
+}
+
+function bulkGamesForm() {
+  openModal('<form data-form="bulkGames"><h2>Add many games</h2>' +
+    '<p class="muted small">One game per line: date, opponent, and optionally home / away / neutral (default home). Notes after a second comma.</p>' +
+    '<label class="field"><textarea name="list" rows="10" placeholder="11/10 Louisiana School for the Deaf, home\n11/12 Georgetown, neutral, Tournament\n12/1 Dodson, away" autofocus></textarea></label>' +
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Add games</button></div></form>');
+}
+
+// "11/10", "11/10/2026", "2026-11-10" → "2026-11-10". Month/day without a year uses the season (Jul–Dec = first year).
+function parseGameDate(text) {
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
+  if (m) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
+  m = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/.exec(text);
+  if (!m) return '';
+  const month = +m[1], day = +m[2];
+  if (month < 1 || month > 12 || day < 1 || day > 31) return '';
+  let year;
+  if (m[3]) year = m[3].length === 2 ? 2000 + +m[3] : +m[3];
+  else {
+    const sm = /^(\d{4})/.exec((S.data && S.data.settings.season) || '');
+    const now = new Date();
+    const start = sm ? +sm[1] : (now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1);
+    year = month >= 7 ? start : start + 1;
+  }
+  return year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+}
+function parseGameLine(lineText) {
+  const parts = lineText.split(',').map(x => x.trim());
+  const first = /^(\S+)\s+(.+)$/.exec(parts[0] || '');
+  if (!first) return null;
+  const date = parseGameDate(first[1]);
+  let opponent = first[2].trim(), location = 'home';
+  if (/^(@|at)\s+/i.test(opponent)) { location = 'away'; opponent = opponent.replace(/^(@|at)\s+/i, ''); }
+  else if (/^vs\.?\s+/i.test(opponent)) opponent = opponent.replace(/^vs\.?\s+/i, '');
+  let rest = parts.slice(1);
+  if (rest.length && /^(home|away|neutral)$/i.test(rest[0])) { location = rest[0].toLowerCase(); rest = rest.slice(1); }
+  return date && opponent ? { date: date, opponent: opponent, location: location, notes: rest.join(', ') } : null;
+}
+
+function bulkForm() {
+  openModal('<form data-form="bulk"><h2>Add many players</h2><p class="muted small">One player per line: jersey number, then name.</p>' +
+    '<label class="field"><textarea name="list" rows="10" placeholder="3 Ava Guard\n23 Ben Center\n5 Chris Wing" autofocus></textarea></label>' +
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Add players</button></div></form>');
+}
+
+function lineEditor(playerId) {
+  const t = S.t;
+  const p = findAnyPlayer(playerId);
+  if (!p) return;
+  const s = line(t.box[playerId]);
+  const keys = isOpp(playerId) ? BASE.filter(k => k !== 'GP') : BASE;
+  const warn = [];
+  if (s.FG2M > s.FG2A) warn.push('2PT made is more than attempts');
+  if (s.FG3M > s.FG3A) warn.push('3PT made is more than attempts');
+  if (s.FTM > s.FTA) warn.push('FT made is more than attempts');
+  openModal('<h2>' + esc(isOpp(playerId) ? t.game.opponent + ' ' + anyLabel(playerId).replace('Opp ', '') : playerLabel(p)) + '</h2><p class="muted small" style="margin-top:4px">' + s.pts + ' points. Changes save right away.</p>' +
+    keys.map(k => '<div class="stepper-row"><span class="lbl">' + BASE_LABELS[k] + '</span>' +
+      '<button data-act="step" data-id="' + esc(playerId) + '" data-k="' + k + '" data-d="-1" ' + (s[k] > 0 ? '' : 'disabled') + ' aria-label="minus">−</button>' +
+      '<span class="val">' + s[k] + '</span>' +
+      '<button data-act="step" data-id="' + esc(playerId) + '" data-k="' + k + '" data-d="1" ' + (k === 'GP' && s[k] >= 1 ? 'disabled' : '') + ' aria-label="plus">+</button></div>').join('') +
+    (warn.length ? '<div class="note">' + warn.map(esc).join('<br>') + '</div>' : '') +
+    '<div class="form-actions"><button class="btn primary" data-act="closeModal">Done</button></div>', { editor: playerId });
+}
+
+function oppRosterForm() {
+  const g = S.t.game;
+  openModal('<form data-form="oppRoster"><h2>' + esc(g.opponent) + ' numbers</h2>' +
+    '<p class="muted small">Jersey numbers, separated by commas or one per line. Names are optional.</p>' +
+    '<label class="field"><textarea name="roster" rows="6" placeholder="4, 10 Smith, 12, 23 Jones" autofocus>' + esc((g.oppRoster || []).map(p => (p.number + ' ' + p.name).trim()).join('\n')) + '</textarea></label>' +
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Save</button></div></form>');
+}
+
+function whosHereForm() {
+  const t = S.t;
+  const ps = gamePlayers().filter(p => p.active || played(t.box[p.id]));
+  const none = !ps.some(p => n0((t.box[p.id] || {}).GP) > 0);
+  openModal('<form data-form="whosHere"><h2>Who\'s playing today?</h2><p class="muted small">Uncheck anyone who is absent so their averages stay right.</p>' +
+    ps.map(p => '<label class="check"><input type="checkbox" name="p" value="' + esc(p.id) + '" ' + (none || n0((t.box[p.id] || {}).GP) > 0 ? 'checked' : '') + '> ' + esc(playerLabel(p)) + '</label>').join('') +
+    '<div class="form-actions"><button type="button" class="btn" data-act="closeModal">Later</button><button class="btn primary" type="submit">Done</button></div></form>');
+}
+
+// ===========================================================================
+// Game state helpers
+// ===========================================================================
+function applyEv(box, e) {
+  const k = e.playerId || TEAM;
+  box[k] = box[k] || {};
+  box[k][e.stat] = (box[k][e.stat] || 0) + e.delta;
+}
+function mkEv(playerId, stat, delta) {
+  return { id: uid(), gameId: S.t.game.id, playerId: playerId || '', stat: stat, delta: delta, time: new Date().toISOString() };
+}
+function saveGameLocal() {
+  const t = S.t;
+  store.set('gcs_box_' + t.game.id, { game: t.game, players: t.players, box: t.box, canTrack: t.canTrack, canFix: t.canFix });
+  store.set('gcs_plays_' + t.game.id, t.plays.slice(0, 40));
+}
+function commit(playerId, events, label, quiet) {
+  const t = S.t;
+  events.forEach(e => applyEv(t.box, e));
+  Queue.push(events);
+  const play = { id: uid(), playerId: playerId || '', label: label, events: events, time: new Date().toISOString(), undone: false };
+  t.plays.unshift(play);
+  saveGameLocal();
+  if (!quiet) {
+    const p = playerId && findAnyPlayer(playerId);
+    const who = !p ? t.game.opponent : isOpp(playerId) ? anyLabel(playerId) : (p.number !== '' ? '#' + p.number : p.name);
+    toast(who + ': ' + label, play.id);
+  }
+  return play;
+}
+function recordTap(code, playerId) {
+  const tap = TAPS[code];
+  if (!tap) return;
+  commit(playerId, tap.ev.map(([stat, d]) => mkEv(playerId, stat, d)), tap.label);
+  S.t.sel = null; S.t.armed = null;
+  render();
+}
+
+async function openGame(gameId, tab) {
+  const prevView = S.view;
+  S.view = 'loading'; render();
+  await Queue.idle();
+  Queue.paused = true;
+  let t = null;
+  try {
+    const r = await call('game', { gameId: gameId });
+    const box = r.box || {};
+    Queue.items.filter(e => e.gameId === gameId).forEach(e => applyEv(box, e));
+    t = { game: r.game, players: r.players, box: box, canTrack: r.canTrack, canFix: r.canFix };
+  } catch (err) {
+    const cached = store.get('gcs_box_' + gameId, null);
+    if (err.network && cached) {
+      t = cached; // already includes every play entered on this device
+      toast('Offline: showing what is saved on this phone');
+    } else {
+      Queue.paused = false; Queue.flush();
+      S.view = prevView; render();
+      if (err.auth) return logout(err.message);
+      return toast(err.message);
+    }
+  }
+  Queue.paused = false; Queue.flush();
+  S.t = Object.assign(t, { tab: t.canTrack ? (tab || 'track') : 'box', side: 'us', sel: null, armed: null, plays: store.get('gcs_plays_' + gameId, []), backTo: prevView });
+  saveGameLocal();
+  S.view = 'game';
+  render();
+  window.scrollTo(0, 0);
+  if (S.t.tab === 'track' && !onCourtPlayers().some(p => n0((S.t.box[p.id] || {}).GP) > 0) && S.t.players.some(p => p.active)) whosHereForm();
+}
+
+async function refreshGameFromServer() {
+  // Re-read the official totals (only when nothing is waiting to save).
+  const t = S.t;
+  if (!t || Queue.count(t.game.id)) return;
+  try {
+    const r = await call('game', { gameId: t.game.id });
+    if (S.t !== t || Queue.count(t.game.id)) return;
+    t.box = r.box || {}; t.game = r.game; t.players = r.players; t.canTrack = r.canTrack; t.canFix = r.canFix;
+    saveGameLocal();
+    if (!modalState) render();
+  } catch (e) { /* stay with local numbers */ }
+}
+
+// ===========================================================================
+// Data loading & auth
+// ===========================================================================
+async function loadHome() {
+  if (hasDashboard()) {
+    S.data = await call('all');
+    S.me = S.data.me;
+    S.teamName = S.data.settings.teamName;
+    if (!coachTabList().some(t => t[0] === S.tab)) S.tab = coachTabList()[0][0];
+  } else {
+    S.data = await call('scorerHome');
+    S.teamName = S.data.me.teamName;
+  }
+  store.set('gcs_team', S.teamName);
+}
+
+async function boot() {
+  if (!S.pin) { S.view = 'login'; render(); return; }
+  try {
+    S.me = await call('me');
+    await loadHome();
+    S.view = hasDashboard() ? 'coach' : 'scorer';
+    render();
+    Queue.flush();
+  } catch (err) {
+    if (err.auth) return logout(err.message);
+    S.view = 'login'; S.loginErr = err.network ? 'No connection. Check your signal and try again.' : err.message; render();
+  }
+}
+
+async function login() {
+  if (S.busy || S.pinEntry.length < 4) return;
+  S.busy = true; S.loginErr = ''; render();
+  S.pin = S.pinEntry;
+  try {
+    S.me = await call('me');
+    store.set('gcs_pin', S.pin);
+    S.pinEntry = '';
+    await loadHome();
+    S.view = hasDashboard() ? 'coach' : 'scorer';
+    Queue.flush();
+  } catch (err) {
+    S.pin = '';
+    S.loginErr = err.message;
+    S.pinEntry = '';
+  }
+  S.busy = false;
+  render();
+}
+
+function logout(msg) {
+  S.pin = ''; S.me = null; S.data = null; S.t = null; S.pinEntry = ''; S.loginErr = msg || '';
+  store.del('gcs_pin');
+  closeModal();
+  S.view = 'login'; render();
+}
+
+async function coachSave(action, data) {
+  try {
+    S.data = await call(action, data);
+    S.me = S.data.me;
+    S.teamName = S.data.settings.teamName;
+    store.set('gcs_team', S.teamName);
+    closeModal();
+    render();
+    return true;
+  } catch (err) {
+    if (err.auth) { logout(err.message); return false; }
+    if (modalState) modalErr(err.message); else toast(err.message);
+    return false;
+  }
+}
+
+function buildReport() {
+  const d = S.data;
+  const rows = seasonTable().filter(r => r.gp).sort((a, b) => byNumber(a.p, b.p));
+  const season = [['#', 'Player', 'GP', 'PTS', 'PPG', 'REB', 'RPG', 'AST', 'APG', 'STL', 'SPG', 'BLK', 'BPG', 'TO', 'TOPG', 'FGM', 'FGA', 'FG%', '3PM', '3PA', '3P%', 'FTM', 'FTA', 'FT%', 'PF']];
+  rows.forEach(r => {
+    const l = r.l, g = r.gp, a = v => Math.round(10 * v / g) / 10;
+    season.push([r.p.number, r.p.name, g, l.pts, a(l.pts), l.REB, a(l.REB), l.AST, a(l.AST), l.STL, a(l.STL), l.BLK, a(l.BLK), l.TO, a(l.TO),
+      l.fgm, l.fga, pctNum(l.fgm, l.fga), l.FG3M, l.FG3A, pctNum(l.FG3M, l.FG3A), l.FTM, l.FTA, pctNum(l.FTM, l.FTA), l.PF]);
+  });
+  const log = [['Date', 'Opponent', 'Location', 'Status', 'Team', 'Opp', 'Side', '#', 'Player', 'PTS', 'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PF']];
+  gamesWithStats().forEach(g => {
+    const box = d.boxes[g.id];
+    d.players.slice().sort(byNumber).forEach(p => {
+      if (!played(box[p.id])) return;
+      const l = line(box[p.id]);
+      log.push([g.date, g.opponent, g.location, g.status, teamPts(box), oppPts(box), 'GCS', p.number, p.name, l.pts, l.fgm, l.fga, l.FG3M, l.FG3A, l.FTM, l.FTA, l.REB, l.AST, l.STL, l.BLK, l.TO, l.PF]);
+    });
+    oppPlayerList(g.oppRoster, box).forEach(p => {
+      if (!hasAny(box[p.id])) return;
+      const l = line(box[p.id]);
+      log.push([g.date, g.opponent, g.location, g.status, teamPts(box), oppPts(box), 'Opponent', p.number, p.name || (p.id === 'opp:team' ? 'Team' : ''), l.pts, l.fgm, l.fga, l.FG3M, l.FG3A, l.FTM, l.FTA, l.REB, l.AST, l.STL, l.BLK, l.TO, l.PF]);
+    });
+  });
+  return { 'Season Stats': season, 'Game Log': log };
+}
+
+// ===========================================================================
+// Actions
+// ===========================================================================
+const ACTS = {
+  key(el) {
+    const k = el.dataset.k;
+    if (k === 'clear') S.pinEntry = '';
+    else if (k === 'back') S.pinEntry = S.pinEntry.slice(0, -1);
+    else if (S.pinEntry.length < 8) S.pinEntry += k;
+    S.loginErr = '';
+    render();
+  },
+  login: login,
+  logout() {
+    const n = Queue.count();
+    if (n && !confirm(n + ' plays have not been saved yet. Sign out anyway? They will stay on this phone and save next time you sign in.')) return;
+    logout();
+  },
+  async refresh() {
+    try { await loadHome(); render(); toast('Updated'); } catch (err) { err.auth ? logout(err.message) : toast(err.message); }
+  },
+  async refreshScorer() { await ACTS.refresh(); },
+  tab(el) { S.tab = el.dataset.tab; S.view = 'coach'; render(); window.scrollTo(0, 0); },
+  seasonMode(el) { S.seasonMode = el.dataset.m; render(); },
+  sort(el) {
+    const k = el.dataset.k;
+    S.sort = S.sort.key === k ? { key: k, dir: -S.sort.dir } : { key: k, dir: -1 };
+    render();
+  },
+  openPlayer(el) { S.playerId = el.dataset.id; S.view = 'player'; render(); window.scrollTo(0, 0); },
+  back() { S.view = 'coach'; render(); },
+  openGame(el) { openGame(el.dataset.id, 'track'); },
+  openBox(el) { openGame(el.dataset.id, 'box'); },
+  async leaveGame() {
+    const back = S.t && S.t.backTo;
+    S.t = null; S.view = 'loading'; render();
+    try { await loadHome(); } catch (err) { if (err.auth) return logout(err.message); }
+    S.view = back === 'player' ? 'player' : (hasDashboard() ? 'coach' : 'scorer');
+    render();
+  },
+  gameTab(el) {
+    S.t.tab = el.dataset.tab; S.t.sel = null; S.t.armed = null;
+    render();
+    if (S.t.tab === 'box') refreshGameFromServer();
+  },
+  pickPlayer(el) {
+    const id = el.dataset.id, t = S.t;
+    if (t.armed) return recordTap(t.armed, id);
+    t.sel = t.sel === id ? null : id;
+    render();
+  },
+  stat(el) {
+    const code = el.dataset.code, t = S.t;
+    if (t.sel) return recordTap(code, t.sel);
+    t.armed = t.armed === code ? null : code;
+    render();
+  },
+  clearSel() { S.t.sel = null; S.t.armed = null; render(); },
+  opp(el) {
+    const d = Number(el.dataset.d);
+    if (d < 0 && oppPts(S.t.box) <= 0) return;
+    commit('', [mkEv('', 'OPP', d)], (d > 0 ? '+' : '−') + Math.abs(d) + ' opponent point' + (Math.abs(d) === 1 ? '' : 's'));
+    render();
+  },
+  undo(el) {
+    const t = S.t;
+    if (!t) return;
+    const p = t.plays.find(x => x.id === el.dataset.id);
+    if (!p || p.undone) return;
+    const rev = p.events.map(e => mkEv(e.playerId, e.stat, -e.delta));
+    rev.forEach(e => applyEv(t.box, e));
+    Queue.push(rev);
+    p.undone = true;
+    saveGameLocal();
+    $('#toast-root').innerHTML = '';
+    toast('Undone: ' + p.label);
+    render();
+  },
+  whosHere() { whosHereForm(); },
+  oppRoster() { oppRosterForm(); },
+  side(el) { S.t.side = el.dataset.side; S.t.sel = null; render(); },
+  editLine(el) { lineEditor(el.dataset.id); },
+  step(el) {
+    const t = S.t, id = el.dataset.id, k = el.dataset.k, d = Number(el.dataset.d);
+    const cur = line(t.box[id])[k];
+    if (cur + d < 0 || (k === 'GP' && cur + d > 1)) return;
+    const e = mkEv(id, k, d); e.fix = true;
+    commit(id, [e], 'Fix: ' + (d > 0 ? '+1 ' : '−1 ') + BASE_LABELS[k].toLowerCase(), true);
+    lineEditor(id);
+    render();
+  },
+  async setStatus(el) {
+    const status = el.dataset.s, t = S.t;
+    try {
+      await Queue.drain(t.game.id);
+      await call('setStatus', { gameId: t.game.id, status: status });
+      t.game.status = status;
+      render();
+      toast('Game marked ' + (status === 'scheduled' ? 'upcoming' : status));
+    } catch (err) { err.auth ? logout(err.message) : toast(err.message); }
+  },
+  async endGame(el) {
+    const t = S.t;
+    if (!confirm('Submit final stats for ' + gameTitle(t.game) + '? You will not be able to change them after this.')) return;
+    el.disabled = true; el.textContent = 'Saving all plays…';
+    const ok = await Queue.drain(t.game.id, 20000);
+    if (!ok) {
+      el.disabled = false; el.textContent = 'Game over: submit final stats';
+      return alert('Some plays are still waiting to save. Check your connection and try again. Nothing is lost; they are stored on this phone.');
+    }
+    try {
+      await call('setStatus', { gameId: t.game.id, status: 'final' });
+      store.del('gcs_box_' + t.game.id); store.del('gcs_plays_' + t.game.id);
+      toast('Thanks! Stats sent to the coach.');
+      await ACTS.leaveGame();
+    } catch (err) {
+      el.disabled = false; el.textContent = 'Game over: submit final stats';
+      err.auth ? logout(err.message) : alert(err.message);
+    }
+  },
+  editPlayer(el) { playerForm(S.data.players.find(p => p.id === el.dataset.id)); },
+  bulkPlayers() { bulkForm(); },
+  bulkGames() { bulkGamesForm(); },
+  deletePlayer(el) {
+    if (!confirm('Remove this player? If they have stats, they are kept and the player is just marked inactive.')) return;
+    coachSave('deletePlayer', { id: el.dataset.id });
+  },
+  editGame(el) { gameForm(S.data.games.find(g => g.id === el.dataset.id)); },
+  deleteGame(el) {
+    if (!confirm('Delete this game and ALL of its stats? This cannot be undone.')) return;
+    coachSave('deleteGame', { id: el.dataset.id });
+  },
+  editParent(el) { parentForm(S.data.parents.find(p => p.id === el.dataset.id)); },
+  deleteParent(el) {
+    if (!confirm('Remove this parent? Their PIN stops working and their games become unassigned.')) return;
+    coachSave('deleteParent', { id: el.dataset.id });
+  },
+  copyUrl() {
+    const input = $('#appUrl');
+    input.select();
+    const done = () => toast('Link copied');
+    if (navigator.clipboard) navigator.clipboard.writeText(input.value).then(done, () => { document.execCommand('copy'); done(); });
+    else { document.execCommand('copy'); done(); }
+  },
+  async writeReport(el) {
+    el.disabled = true; el.textContent = 'Updating…';
+    try {
+      await call('writeReport', { sheets: buildReport() });
+      toast('Season Stats and Game Log tabs updated');
+    } catch (err) { err.auth ? logout(err.message) : toast(err.message); }
+    el.disabled = false; el.textContent = 'Update stats in Google Sheet';
+  },
+  closeModal() {
+    const wasEditor = modalState && modalState.editor;
+    closeModal();
+    if (wasEditor) render();
+  },
+  overlay(el, ev) { if (ev.target === el) ACTS.closeModal(); },
+};
+
+const FORMS = {
+  player(f) {
+    return coachSave('savePlayer', { id: f.elements.id.value, number: f.elements.number.value, name: f.elements.name.value, active: f.elements.active ? f.elements.active.checked : true });
+  },
+  bulkGames(f) {
+    const lines = f.elements.list.value.split('\n').map(x => x.trim()).filter(Boolean);
+    if (!lines.length) return modalErr('Type at least one game.');
+    const list = [];
+    for (const l of lines) {
+      const g = parseGameLine(l);
+      if (!g) return modalErr('Couldn\'t read: “' + l + '”. Start with a date like 11/10.');
+      list.push(g);
+    }
+    return coachSave('addGames', { list: list });
+  },
+  bulk(f) {
+    const list = f.elements.list.value.split('\n').map(s => s.trim()).filter(Boolean).map(s => {
+      const m = /^#?(\d{1,3})[\s,.\-:]+(.+)$/.exec(s);
+      return m ? { number: m[1], name: m[2].trim() } : { number: '', name: s };
+    });
+    if (!list.length) return modalErr('Type at least one player.');
+    return coachSave('addPlayers', { list: list });
+  },
+  game(f) {
+    return coachSave('saveGame', { id: f.elements.id.value, date: f.elements.date.value, opponent: f.elements.opponent.value, location: f.elements.location.value, scorerId: f.elements.scorerId.value, status: f.elements.status.value, notes: f.elements.notes.value, oppRoster: f.elements.oppRoster.value });
+  },
+  parent(f) {
+    const perms = {};
+    PERM_INFO.forEach(([k]) => { perms[k] = f.elements['perm_' + k].checked; });
+    return coachSave('saveParent', { id: f.elements.id.value, name: f.elements.name.value, active: f.elements.active ? f.elements.active.checked : true, newPin: !!(f.elements.newPin && f.elements.newPin.checked), perms: perms });
+  },
+  settings(f) {
+    return coachSave('saveSettings', { teamName: f.elements.teamName.value, season: f.elements.season.value }).then(ok => ok && toast('Saved'));
+  },
+  async oppRoster(f) {
+    const t = S.t;
+    try {
+      const r = await call('setOppRoster', { gameId: t.game.id, roster: f.elements.roster.value });
+      t.game.oppRoster = r.oppRoster;
+      saveGameLocal();
+      closeModal();
+      render();
+    } catch (err) { modalErr(err.network ? 'No connection. Try again in a moment, or use TEAM for now.' : err.message); }
+  },
+  whosHere(f) {
+    const t = S.t;
+    const checked = new Set(Array.from(f.querySelectorAll('input[name=p]:checked')).map(i => i.value));
+    const evs = [];
+    gamePlayers().forEach(p => {
+      const gp = n0((t.box[p.id] || {}).GP);
+      if (checked.has(p.id) && gp < 1) evs.push(mkEv(p.id, 'GP', 1 - gp));
+      if (!checked.has(p.id) && gp > 0) evs.push(mkEv(p.id, 'GP', -gp));
+    });
+    if (evs.length) commit('', evs, 'Set who\'s playing', true);
+    closeModal();
+    render();
+  },
+};
+
+document.addEventListener('click', ev => {
+  const el = ev.target.closest('[data-act]');
+  if (!el || el.disabled) return;
+  const fn = ACTS[el.dataset.act];
+  if (!fn) return;
+  if (el.tagName === 'A') return;
+  if (el.dataset.act === 'overlay' && ev.target !== el) return; // click inside the dialog
+  ev.preventDefault();
+  fn(el, ev);
+});
+document.addEventListener('submit', async ev => {
+  const f = ev.target.closest('form[data-form]');
+  if (!f) return;
+  ev.preventDefault();
+  const btn = f.querySelector('button[type=submit]');
+  if (btn) { if (btn.disabled) return; btn.disabled = true; }
+  try { await FORMS[f.dataset.form](f); } finally { if (btn && document.body.contains(btn)) btn.disabled = false; }
+});
+document.addEventListener('keydown', ev => {
+  if (S.view !== 'login') return;
+  if (/^\d$/.test(ev.key)) ACTS.key({ dataset: { k: ev.key } });
+  else if (ev.key === 'Backspace') ACTS.key({ dataset: { k: 'back' } });
+  else if (ev.key === 'Enter') login();
+});
+window.addEventListener('beforeunload', ev => { if (Queue.count()) { ev.preventDefault(); ev.returnValue = ''; } });
+
+boot();
+</script>
+</body>
+</html>
