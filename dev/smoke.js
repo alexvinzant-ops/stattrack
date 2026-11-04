@@ -186,10 +186,32 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await shot(parent, '05b-ot-box');
     await parent.click('[data-act=boxFilter][data-f=all]');
     await shot(parent, '05-box');
-    // Fix a stat in the box score
+    // Fix a stat in the box score, in the quarter it belongs to (we're in OT now, the miss was in Q1).
     await parent.click('tr[data-act=editLine]:has-text("Ben Center")');
+    await parent.waitForSelector('.modal [data-act=editScope].on:text-is("OT")');
+    await parent.click('.modal [data-act=editScope][data-n="1"]');
+    await parent.waitForSelector('text=Numbers below are for Q1');
     await parent.click('[data-act=step][data-k=REB][data-d="1"]');
+    await shot(parent, '05c-fix-quarter');
     await parent.click('.modal [data-act=closeModal]');
+    const benQ1 = await parent.evaluate(() => { const b = S.t.players.find(p => p.name === 'Ben Center'); return S.t.periodBoxes[1][b.id].REB; });
+    assert.equal(benQ1, 2, 'fix landed in Q1');
+    assert.equal(await parent.evaluate(() => Object.keys(S.t.periodBoxes[5]).length), 1, 'OT untouched');
+
+    // Full play-by-play: undo an old Q1 play from the list.
+    await parent.click('[data-act=gameTab][data-tab=track]');
+    await parent.click('[data-act=allPlays]');
+    await parent.waitForSelector('.modal .section-title:text-is("Q1")');
+    await shot(parent, '05d-all-plays');
+    const before = await parent.textContent('.score .pts');
+    // Undo Ava's 2PT miss in Q1 (no score change) and check it's marked undone.
+    const missRow = parent.locator('.modal .list-item:has-text("Ava Guard · 2PT miss")');
+    await missRow.locator('[data-act=undo]').click();
+    await parent.waitForSelector('.modal .list-item.undone:has-text("Ava Guard · 2PT miss")');
+    assert.equal(await parent.textContent('.score .pts'), before);
+    await parent.click('.modal [data-act=closeModal]');
+    await parent.click('[data-act=gameTab][data-tab=box]');
+    await parent.waitForSelector('.sync:text("All saved")');
     await parent.click('[data-act=endGame]');
     await parent.waitForSelector('text=No games are assigned to you right now.');
 
@@ -223,7 +245,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await shot(coach, '06-season');
     await coach.waitForSelector('text=Us vs. opponents');
     const oppFg = await coach.$$eval('tr:has(td:text-is("FG%")) td', tds => tds.map(t => t.textContent));
-    assert.deepEqual(oppFg, ['FG%', '80.0', '50.0']);
+    assert.deepEqual(oppFg, ['FG%', '100.0', '50.0']); // 4-4 after undoing the Q1 miss
     await coach.click('[data-act=seasonMode][data-m=tot]');
     await coach.click('tr[data-act=openPlayer]:has-text("Ava Guard")');
     await coach.waitForSelector('text=Game log');

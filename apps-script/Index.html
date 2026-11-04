@@ -586,6 +586,30 @@ function endGameButton() {
   return '<button class="btn danger big end-game" data-act="endGame">' + (can('manage') ? 'End game (mark final)' : 'Game over: submit final stats') + '</button>';
 }
 
+function playRow(p) {
+  const who = p.playerId ? anyLabel(p.playerId) : (p.events[0] && p.events[0].stat === 'OPP' ? g_opp() : 'Team');
+  return '<div class="list-item ' + (p.undone ? 'undone' : '') + '"><div class="grow"><b>' + esc(who) + '</b> · ' + esc(p.label) +
+    '<div class="muted small">' + (p.events[0] && p.events[0].period && !S.t.mode ? periodLabel(p.events[0].period) + ' · ' : '') + esc(new Date(p.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) + '</div></div>' +
+    (p.undone ? '<span class="muted small">undone</span>' : '<button class="btn sm" data-act="undo" data-id="' + esc(p.id) + '">Undo</button>') + '</div>';
+}
+
+// Every play entered on this phone for this game, newest first, grouped by quarter.
+function playsModal() {
+  const t = S.t;
+  // One group per quarter, latest quarter first; plays newest first inside each.
+  const byPer = {};
+  t.plays.forEach(p => {
+    const per = t.mode ? 0 : ((p.events[0] && p.events[0].period) || 0);
+    (byPer[per] = byPer[per] || []).push(p);
+  });
+  const groups = Object.keys(byPer).map(Number).sort((a, b) => (b || -1) - (a || -1))
+    .map(n => ({ label: t.mode ? 'Plays' : (n ? periodLabel(n) : 'No quarter'), plays: byPer[n] }));
+  const live = t.plays.filter(p => !p.undone).length;
+  openModal('<h2>All plays</h2><p class="muted small" style="margin-top:4px">' + live + ' play' + (live === 1 ? '' : 's') + ' entered on this phone, newest first. Undo any of them; it comes off the quarter it happened in.</p>' +
+    (groups.length ? groups.map(g => '<div class="section-title">' + esc(g.label) + '</div><div class="plays">' + g.plays.map(playRow).join('') + '</div>').join('') : '<div class="empty">No plays yet.</div>') +
+    '<div class="form-actions"><button class="btn primary" data-act="closeModal">Done</button></div>', { plays: true });
+}
+
 function viewTracker() {
   const t = S.t;
   const ps = onCourtPlayers();
@@ -610,13 +634,10 @@ function viewTracker() {
     b('FM', 'FT', 'MADE', 'make') + b('FX', 'FT', 'MISS', 'miss') + b('REB', 'REB') + b('AST', 'AST') +
     b('STL', 'STL') + b('BLK', 'BLK') + b('TO', 'TO', 'TURNOVER') + b('PF', 'FOUL') +
     '</div>';
-  const plays = t.plays.slice(0, 12);
-  const playsHtml = plays.length ? plays.map(p => {
-    const who = p.playerId ? anyLabel(p.playerId) : (p.events[0] && p.events[0].stat === 'OPP' ? g_opp() : 'Team');
-    return '<div class="list-item ' + (p.undone ? 'undone' : '') + '"><div class="grow"><b>' + esc(who) + '</b> · ' + esc(p.label) +
-      '<div class="muted small">' + (p.events[0] && p.events[0].period && !S.t.mode ? periodLabel(p.events[0].period) + ' · ' : '') + esc(new Date(p.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) + '</div></div>' +
-      (p.undone ? '<span class="muted small">undone</span>' : '<button class="btn sm" data-act="undo" data-id="' + esc(p.id) + '">Undo</button>') + '</div>';
-  }).join('') : '<div class="muted small" style="padding:8px 0">Plays you enter will show here so you can undo mistakes.</div>';
+  const plays = t.plays.slice(0, 6);
+  const playsHtml = plays.length ? plays.map(playRow).join('') +
+    '<button class="btn big" style="margin-top:10px" data-act="allPlays">All plays this game (' + t.plays.length + ')</button>'
+    : '<div class="muted small" style="padding:8px 0">Plays you enter will show here so you can undo mistakes.</div>';
   const sideToggle = isPersonal() ? '' : '<div class="row" style="margin-top:12px"><div class="seg side-seg">' +
     '<button class="' + (opp ? '' : 'on') + '" data-act="side" data-side="us">' + esc(shortTeam()) + '</button>' +
     '<button class="' + (opp ? 'on' : '') + '" data-act="side" data-side="opp">' + esc(t.game.opponent) + '</button></div></div>';
@@ -1093,23 +1114,40 @@ function bulkForm() {
     '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Add players</button></div></form>');
 }
 
-function lineEditor(playerId) {
+// Fix a player's numbers. Changes go into the chosen quarter (or "No quarter"), so by-quarter totals stay right.
+function lineEditor(playerId, scope) {
   const t = S.t;
   const p = findAnyPlayer(playerId);
   if (!p) return;
-  const s = line(t.box[playerId]);
+  if (scope === undefined) scope = (modalState && modalState.editor === playerId) ? modalState.scope : (t.mode ? 0 : t.period || 1);
+  const game = line(t.box[playerId]);
+  const inScope = scope ? line(((t.periodBoxes || {})[scope] || {})[playerId]) : game;
   const keys = isOpp(playerId) ? BASE.filter(k => k !== 'GP') : BASE;
   const warn = [];
-  if (s.FG2M > s.FG2A) warn.push('2PT made is more than attempts');
-  if (s.FG3M > s.FG3A) warn.push('3PT made is more than attempts');
-  if (s.FTM > s.FTA) warn.push('FT made is more than attempts');
-  openModal('<h2>' + esc(isOpp(playerId) ? t.game.opponent + ' ' + anyLabel(playerId).replace('Opp ', '') : playerLabel(p)) + '</h2><p class="muted small" style="margin-top:4px">' + s.pts + ' points. Changes save right away.</p>' +
-    keys.map(k => '<div class="stepper-row"><span class="lbl">' + BASE_LABELS[k] + '</span>' +
-      '<button data-act="step" data-id="' + esc(playerId) + '" data-k="' + k + '" data-d="-1" ' + (s[k] > 0 ? '' : 'disabled') + ' aria-label="minus">−</button>' +
-      '<span class="val">' + s[k] + '</span>' +
-      '<button data-act="step" data-id="' + esc(playerId) + '" data-k="' + k + '" data-d="1" ' + (k === 'GP' && s[k] >= 1 ? 'disabled' : '') + ' aria-label="plus">+</button></div>').join('') +
+  if (game.FG2M > game.FG2A) warn.push('2PT made is more than attempts');
+  if (game.FG3M > game.FG3A) warn.push('3PT made is more than attempts');
+  if (game.FTM > game.FTA) warn.push('FT made is more than attempts');
+  let scopeBar = '';
+  if (!t.mode) {
+    const maxP = Math.max(4, t.period || 1, ...Object.keys(t.periodBoxes || {}).map(Number));
+    const opts = [];
+    for (let n = 1; n <= maxP; n++) opts.push([n, periodLabel(n)]);
+    opts.push([0, 'None']);
+    scopeBar = '<div class="small" style="font-weight:700;margin-top:10px">Fix which quarter?</div><div class="seg box-filter">' +
+      opts.map(([n, l]) => '<button class="' + (n === scope ? 'on' : '') + '" data-act="editScope" data-id="' + esc(playerId) + '" data-n="' + n + '">' + l + '</button>').join('') + '</div>';
+  }
+  const val = k => (k === 'GP' ? game.GP : inScope[k]);
+  openModal('<h2>' + esc(isOpp(playerId) ? t.game.opponent + ' ' + anyLabel(playerId).replace('Opp ', '') : playerLabel(p)) + '</h2>' +
+    '<p class="muted small" style="margin-top:4px">' + game.pts + ' points this game. Changes save right away.</p>' +
+    scopeBar +
+    (scope ? '<p class="muted small" style="margin:0 0 4px">Numbers below are for <b>' + periodLabel(scope) + '</b>. Game totals are in grey.</p>'
+      : (t.mode ? '' : '<p class="muted small" style="margin:0 0 4px">Changes count for the game but not toward any quarter.</p>')) +
+    keys.map(k => '<div class="stepper-row"><span class="lbl">' + BASE_LABELS[k] + (scope && k !== 'GP' ? ' <span class="muted small">(game ' + game[k] + ')</span>' : '') + '</span>' +
+      '<button data-act="step" data-id="' + esc(playerId) + '" data-k="' + k + '" data-d="-1" ' + (val(k) > 0 ? '' : 'disabled') + ' aria-label="minus">−</button>' +
+      '<span class="val">' + val(k) + '</span>' +
+      '<button data-act="step" data-id="' + esc(playerId) + '" data-k="' + k + '" data-d="1" ' + (k === 'GP' && game.GP >= 1 ? 'disabled' : '') + ' aria-label="plus">+</button></div>').join('') +
     (warn.length ? '<div class="note">' + warn.map(esc).join('<br>') + '</div>' : '') +
-    '<div class="form-actions"><button class="btn primary" data-act="closeModal">Done</button></div>', { editor: playerId });
+    '<div class="form-actions"><button class="btn primary" data-act="closeModal">Done</button></div>', { editor: playerId, scope: scope });
 }
 
 const HELP_STEPS = [
@@ -1224,15 +1262,17 @@ function boxFilterBar() {
   return '<div class="seg box-filter">' + opts.map(([k, l]) => '<button class="' + (f === k ? 'on' : '') + '" data-act="boxFilter" data-f="' + k + '">' + l + '</button>').join('') + '</div>';
 }
 function periodLabel(n) { return n <= 4 ? 'Q' + n : (n === 5 ? 'OT' : (n - 4) + 'OT'); }
+// period: omitted = the quarter being tracked now; a number = that quarter; null = no quarter.
 function mkEv(playerId, stat, delta, period) {
-  return { id: uid(), gameId: S.t.game.id, mode: S.t.mode || '', playerId: playerId || '', stat: stat, delta: delta, period: period || S.t.period || 1, time: new Date().toISOString() };
+  const p = period === undefined ? (S.t.period || 1) : (period || null);
+  return { id: uid(), gameId: S.t.game.id, mode: S.t.mode || '', playerId: playerId || '', stat: stat, delta: delta, period: p, time: new Date().toISOString() };
 }
 const localKey = (gameId, mode) => gameId + (mode === 'personal' ? '_p' : '');
 function saveGameLocal() {
   const t = S.t, k = localKey(t.game.id, t.mode);
   store.set('gcs_box_' + k, { game: t.game, players: t.players, box: t.box, periods: t.periods, periodBoxes: t.periodBoxes, canTrack: t.canTrack, canFix: t.canFix, mode: t.mode });
   store.set('gcs_period_' + k, t.period);
-  store.set('gcs_plays_' + k, t.plays.slice(0, 40));
+  store.set('gcs_plays_' + k, t.plays.slice(0, 400));
 }
 const isPersonal = () => !!S.t && S.t.mode === 'personal';
 function commit(playerId, events, label, quiet) {
@@ -1519,7 +1559,7 @@ const ACTS = {
     const p = t.plays.find(x => x.id === el.dataset.id);
     if (!p || p.undone) return;
     // Undo lands in the quarter the play happened in, even if the quarter has changed since.
-    const rev = p.events.map(e => mkEv(e.playerId, e.stat, -e.delta, e.period));
+    const rev = p.events.map(e => mkEv(e.playerId, e.stat, -e.delta, e.period || null));
     rev.forEach(e => applyAll(t, e));
     Queue.push(rev);
     p.undone = true;
@@ -1527,6 +1567,7 @@ const ACTS = {
     $('#toast-root').innerHTML = '';
     toast('Undone: ' + p.label);
     render();
+    if (modalState && modalState.plays) playsModal();
   },
   whosHere() { whosHereForm(); },
   boxFilter(el) { S.t.boxFilter = el.dataset.f; render(); },
@@ -1543,13 +1584,16 @@ const ACTS = {
   editLine(el) { lineEditor(el.dataset.id); },
   step(el) {
     const t = S.t, id = el.dataset.id, k = el.dataset.k, d = Number(el.dataset.d);
-    const cur = line(t.box[id])[k];
+    const scope = k === 'GP' ? 0 : ((modalState && modalState.scope) || 0);
+    const cur = scope ? line(((t.periodBoxes || {})[scope] || {})[id])[k] : line(t.box[id])[k];
     if (cur + d < 0 || (k === 'GP' && cur + d > 1)) return;
-    const e = mkEv(id, k, d); e.fix = true;
+    const e = mkEv(id, k, d, scope || null); e.fix = true;
     commit(id, [e], 'Fix: ' + (d > 0 ? '+1 ' : '−1 ') + BASE_LABELS[k].toLowerCase(), true);
     lineEditor(id);
     render();
   },
+  editScope(el) { lineEditor(el.dataset.id, Number(el.dataset.n)); },
+  allPlays() { playsModal(); },
   async setStatus(el) {
     const status = el.dataset.s, t = S.t;
     try {
