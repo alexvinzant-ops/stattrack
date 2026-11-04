@@ -79,6 +79,24 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.waitForSelector('text=vs Hillside');
     await shot(coach, '03-games');
 
+    // A player-parent: tracks only Ava, and may see Ava's official stats.
+    await coach.click('[data-act=tab][data-tab=parents]');
+    await coach.click('[data-act=editParent]:has-text("Add person")');
+    await coach.fill('input[name=name]', 'Pat (Ava’s dad)');
+    await coach.check('input[name=perm_viewOwn]');
+    await coach.check('.player-checks label:has-text("Ava Guard") input');
+    await coach.click('form[data-form=parent] button[type=submit]');
+    await coach.waitForSelector('.list-item:has-text("Pat (Ava’s dad)")');
+    assert.match(await coach.textContent('.list-item:has-text("Pat (Ava’s dad)")'), /Tracks Ava/);
+    const patPin = (await coach.textContent('.list-item:has-text("Pat (Ava’s dad)") .pin')).trim();
+    await coach.click('.list-item:has-text("Jamie") [data-act=invite]');
+    const invite = await coach.inputValue('#inviteText');
+    assert.match(invite, new RegExp('Your PIN: ' + parentPin));
+    assert.match(invite, /Valley Christian/);
+    assert.match(invite, /http:\/\/localhost/);
+    await shot(coach, '02c-invite');
+    await coach.click('.modal [data-act=closeModal]');
+
     // ---- Parent tracks the game
     const parent = await newPhone();
     await typePin(parent, parentPin);
@@ -144,6 +162,24 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await parent.click('[data-act=endGame]');
     await parent.waitForSelector('text=No games are assigned to you right now.');
 
+    // ---- Player-parent keeps their own record of Ava in a live game (official game already final above,
+    // so use the Hillside game).
+    const pat = await newPhone();
+    await pat.click('[data-act=help]');
+    await pat.waitForSelector('text=How to keep stats');
+    await pat.click('.modal [data-act=closeModal]');
+    await typePin(pat, patPin);
+    await pat.waitForSelector('text=Your player: #3 Ava Guard');
+    await pat.click('.card:has-text("Hillside") [data-act=openPersonal]');
+    await pat.waitForSelector('text=Your record of Ava');
+    if (await pat.locator('form[data-form=whosHere]').count()) await pat.click('form[data-form=whosHere] button[type=submit]');
+    assert.equal(await pat.locator('.pbtn').count(), 1, 'only Ava');
+    assert.equal(await pat.locator('[data-act=side]').count(), 0, 'no opponent tracking');
+    await pat.click('.pbtn'); await pat.click('.sbtn[data-code="3M"]');
+    await pat.click('.pbtn'); await pat.click('.sbtn[data-code="STL"]');
+    await pat.waitForSelector('.sync:text("All saved")');
+    await shot(pat, '09-player-parent');
+
     // ---- Coach reviews
     await coach.click('[data-act=refresh]');
     await coach.click('[data-act=tab][data-tab=season]');
@@ -179,6 +215,25 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     assert.equal(await viewer.locator('tr[data-act=editLine]').count(), 0, 'read-only box score');
     assert.equal(await viewer.locator('[data-tab=track]').count(), 0);
     await shot(viewer, '08-viewer-box');
+
+    // Coach compares Pat's record with the official stats for Hillside (official: none for Ava).
+    await coach.click('[data-act=tab][data-tab=games]');
+    await coach.click('.card:has-text("Hillside") [data-act=openBox]');
+    await coach.waitForSelector('text=Parent records');
+    const diffs = await coach.locator('table.compare td.diff').count();
+    assert.ok(diffs >= 3, 'PTS, FG, 3P, STL differ');
+    await shot(coach, '10-parent-records');
+    await coach.click('[data-act=leaveGame]');
+    // Official season stats were not changed by Pat's record.
+    await coach.click('[data-act=tab][data-tab=season]');
+    await coach.click('[data-act=refresh]');
+    const avaPts = await coach.$$eval('tr:has-text("Ava Guard") td', tds => tds[2].textContent);
+    assert.equal(avaPts, '4');
+
+    // Pat can see Ava's official stats.
+    await pat.click('[data-act=leaveGame]');
+    await pat.waitForSelector('text=#3 Ava Guard: official stats');
+    assert.equal(await pat.locator('text=Ben Center').count(), 0, 'no other players');
 
     const saved = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
     assert.ok(saved['Game Log'].some(r => r[6] === 'Opponent' && r[7] === '23' && r[9] === 3), 'opponent rows exported');

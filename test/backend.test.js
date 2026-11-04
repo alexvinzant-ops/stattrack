@@ -47,7 +47,8 @@ test('parents get a PIN, can sign in, and are not allowed coach actions', () => 
   assert.match(pat.pin, /^[1-9]\d{3}$/);
   assert.deepEqual(t.call(pat.pin, 'me'), {
     role: 'scorer', id: pat.id, name: 'Pat Parent', teamName: "GCS Boys' Basketball",
-    perms: { trackAny: false, fixStats: true, viewStats: false, manage: false },
+    perms: { trackAny: false, fixStats: true, viewStats: false, manage: false, viewOwn: false },
+    players: [],
   });
   assert.throws(() => t.call(pat.pin, 'all'), /Only the coach/);
   assert.throws(() => t.call(pat.pin, 'savePlayer', { name: 'X' }), /Only the coach/);
@@ -233,10 +234,11 @@ test('older spreadsheets get the new columns added', () => {
   const again = createGas();
   for (const k of Object.keys(gas.sheets)) again.sheets[k] = gas.sheets[k];
   again.context.setup();
-  assert.deepEqual(gas.sheets.Parents.data[0].slice(4), ['Track Any', 'Fix Stats', 'View Stats', 'Manage']);
+  assert.deepEqual(gas.sheets.Parents.data[0].slice(4), ['Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players']);
+  assert.equal(gas.sheets.Events.data[0][7], 'Book');
   assert.equal(gas.sheets.Games.data[0][7], 'Opp Roster');
   const me = again.api({ pin: '5555', action: 'me' });
-  assert.deepEqual(me.perms, { trackAny: false, fixStats: true, viewStats: false, manage: false });
+  assert.deepEqual(me.perms, { trackAny: false, fixStats: true, viewStats: false, manage: false, viewOwn: false });
 });
 
 test('coach can add many games at once', () => {
@@ -250,4 +252,49 @@ test('coach can add many games at once', () => {
     ['2026-11-12', 'School B', 'neutral', 'scheduled', 'Tournament'],
   ]);
   assert.throws(() => t.coach('addGames', { list: [{ date: 'soon', opponent: 'X' }] }), /date/);
+});
+
+test('player-parents keep their own record without touching official stats', () => {
+  const t = setup();
+  const { pat, sam, g1, g2, ava, ben } = seed(t);
+  // Sam is assigned to Ava only, and may see her stats.
+  let all = t.coach('saveParent', { id: sam.id, name: sam.name, players: [ava.id, 'bogus'], perms: { viewOwn: true } });
+  assert.deepEqual(all.parents.find(p => p.id === sam.id).players, [ava.id]);
+
+  const home = t.call(sam.pin, 'scorerHome');
+  assert.deepEqual(home.myPlayers.map(p => p.id), [ava.id]);
+  assert.deepEqual(home.playerGames.map(g => g.id).sort(), [g1.id, g2.id].sort(), 'any non-final game');
+  assert.deepEqual(home.games.map(g => g.id), [g2.id], 'still keeps team stats for their assigned game');
+
+  // Pat keeps the official team stats for game 1; Sam keeps a personal record of Ava at the same time.
+  t.call(pat.pin, 'record', { gameId: g1.id, events: [ev(ava.id, 'FG2M'), ev(ava.id, 'FG2A'), ev(ben.id, 'REB')] });
+  t.call(sam.pin, 'record', { gameId: g1.id, mode: 'personal', events: [ev(ava.id, 'FG2M'), ev(ava.id, 'FG2A'), ev(ava.id, 'FG2M'), ev(ava.id, 'FG2A'), ev(ava.id, 'STL')] });
+  assert.throws(() => t.call(sam.pin, 'record', { gameId: g1.id, mode: 'personal', events: [ev(ben.id, 'REB')] }), /assigned players/);
+  assert.throws(() => t.call(sam.pin, 'record', { gameId: g1.id, mode: 'personal', events: [ev('', 'OPP', 2)] }), /assigned players/);
+  assert.throws(() => t.call(sam.pin, 'record', { gameId: g1.id, events: [ev(ava.id, 'REB')] }), /isn't assigned/, 'not the team scorer for game 1');
+
+  const official = t.call(pat.pin, 'game', { gameId: g1.id });
+  assert.deepEqual(official.box[ava.id], { FG2M: 1, FG2A: 1 }, 'official stats untouched');
+  const personal = t.call(sam.pin, 'game', { gameId: g1.id, mode: 'personal' });
+  assert.equal(personal.mode, 'personal');
+  assert.deepEqual(personal.players.map(p => p.id), [ava.id]);
+  assert.deepEqual(personal.box[ava.id], { FG2M: 2, FG2A: 2, STL: 1 });
+
+  // Coach sees both, side by side.
+  const coachView = t.coach('game', { gameId: g1.id });
+  assert.deepEqual(coachView.parentBooks, [{ id: sam.id, name: 'Sam Other', box: { [ava.id]: { FG2M: 2, FG2A: 2, STL: 1 } } }]);
+  assert.equal(t.coach('all').boxes[g1.id][ava.id].FG2M, 1, 'season uses official stats only');
+  assert.equal(t.call(pat.pin, 'game', { gameId: g1.id }).parentBooks, undefined, 'only the coach sees parent records');
+
+  // viewOwn: official numbers for their players only.
+  const mine = t.call(sam.pin, 'scorerHome').myStats;
+  assert.deepEqual(mine.map(x => Object.keys(x.box)), [[ava.id]]);
+  assert.deepEqual(mine[0].box[ava.id], { FG2M: 1, FG2A: 1 });
+  // Without the switch, nothing.
+  t.coach('saveParent', { id: sam.id, name: sam.name, players: [ava.id], perms: { viewOwn: false } });
+  assert.equal(t.call(sam.pin, 'scorerHome').myStats, undefined);
+
+  // Final games close the personal record too.
+  t.coach('setStatus', { gameId: g1.id, status: 'final' });
+  assert.throws(() => t.call(sam.pin, 'record', { gameId: g1.id, mode: 'personal', events: [ev(ava.id, 'REB')] }), /final/);
 });
