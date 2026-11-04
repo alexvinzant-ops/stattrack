@@ -85,6 +85,7 @@ const ACTIONS = {
   all: { need: 'view', run: all_ },
   savePlayer: { need: 'manage', run: savePlayer_ },
   addPlayers: { need: 'manage', run: addPlayers_ },
+  addGames: { need: 'manage', run: addGames_ },
   deletePlayer: { need: 'manage', run: deletePlayer_ },
   saveGame: { need: 'manage', run: saveGame_ },
   deleteGame: { need: 'coach', run: deleteGame_ },
@@ -282,6 +283,18 @@ function addPlayers_(who, d) {
     .map(p => [newId_('P'), clean_(p.number, 3).replace(/[^0-9]/g, ''), clean_(p.name, 60), true])
     .filter(r => r[2]);
   withLock_(() => appendRows_('Players', list));
+  return all_(who);
+}
+
+function addGames_(who, d) {
+  const rows = (Array.isArray(d.list) ? d.list : []).slice(0, 60).map(g => {
+    const date = str_(g.date);
+    const opponent = clean_(g.opponent, 60);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !opponent) throw new Error('Each game needs a date and an opponent.');
+    const location = LOCATIONS.indexOf(g.location) >= 0 ? g.location : 'home';
+    return [newId_('G'), date, opponent, location, '', 'scheduled', clean_(g.notes, 200), ''];
+  });
+  withLock_(() => appendRows_('Games', rows));
   return all_(who);
 }
 

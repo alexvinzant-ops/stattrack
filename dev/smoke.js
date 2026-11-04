@@ -61,6 +61,12 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.click('.modal [data-act=closeModal]');
     await shot(coach, '02-parents');
     await coach.click('[data-act=tab][data-tab=games]');
+    await coach.click('[data-act=bulkGames]');
+    await coach.fill('textarea[name=list]', '11/10 School A, home\n12/8 @ School A\n1/4 School C, neutral, Tournament');
+    await coach.click('form[data-form=bulkGames] button[type=submit]');
+    await coach.waitForSelector('text=@ School A');
+    const dates = await coach.evaluate(() => S.data.games.map(g => g.date + ' ' + g.location + ' ' + g.notes).sort());
+    assert.deepEqual(dates, ['2026-11-10 home ', '2026-12-08 away ', '2027-01-04 neutral Tournament']);
     await coach.click('[data-act=editGame]:has-text("New game")');
     await coach.fill('input[name=opponent]', 'Valley Christian');
     await coach.fill('textarea[name=oppRoster]', '4 Smith, 12, 23');

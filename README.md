@@ -48,7 +48,7 @@ Paste in the new code, then click **Deploy → Manage deployments → ✏️ Edi
 ### Before the season (Coach)
 1. **Roster tab:** tap **Add many** and paste your roster, one player per line (`23 Ben Center`).
 2. **Access tab:** add each parent who'll keep stats. Each one gets a PIN. Tap **Edit** to choose what they can do (see *Access levels* below). Copy the app link from that tab and text it to them with their PIN.
-3. **Games tab:** add each game (opponent, date, home/away). Under **Who keeps stats?** pick the parent, or leave it as *Coach*. You can also type the opponent's jersey numbers here if you know them.
+3. **Games tab:** add each game (opponent, date, home/away), or tap **Add many** and paste your schedule, one game per line (`11/10 Louisiana School for the Deaf, home`, `12/8 @ Dodson`, `1/4 Hicks, neutral, Tournament`). Under **Who keeps stats?** pick the parent, or leave it as *Coach*. You can also type the opponent's jersey numbers here if you know them.
 
 ### Access levels
 Everyone you add can **keep stats for the games you assign them** until that game is final. Tick any extras per person:

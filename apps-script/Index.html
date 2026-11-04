@@ -797,7 +797,7 @@ function viewGames() {
       '<button class="btn sm" data-act="openBox" data-id="' + esc(g.id) + '">Box score</button>' +
       (can('manage') ? '<button class="btn sm" data-act="editGame" data-id="' + esc(g.id) + '">Edit</button>' : '') + '</div></div>';
   };
-  return (can('manage') ? '<div class="row" style="margin-top:14px"><span class="spacer"></span><button class="btn primary" data-act="editGame">+ New game</button></div>' : '') +
+  return (can('manage') ? '<div class="row" style="margin-top:14px"><span class="spacer"></span><button class="btn" data-act="bulkGames">Add many</button><button class="btn primary" data-act="editGame">+ New game</button></div>' : '') +
     '<div class="section-title">Upcoming &amp; in progress</div>' + (upcoming.length ? upcoming.map(card).join('') : '<div class="card empty">No upcoming games.</div>') +
     (done.length ? '<div class="section-title">Final</div>' + done.map(card).join('') : '');
 }
@@ -892,6 +892,44 @@ function parentForm(p) {
     '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Save</button></div>' +
     (p.id ? '<button type="button" class="btn danger big" style="margin-top:10px" data-act="deleteParent" data-id="' + esc(p.id) + '">Remove person</button>' : '') +
     '</form>');
+}
+
+function bulkGamesForm() {
+  openModal('<form data-form="bulkGames"><h2>Add many games</h2>' +
+    '<p class="muted small">One game per line: date, opponent, and optionally home / away / neutral (default home). Notes after a second comma.</p>' +
+    '<label class="field"><textarea name="list" rows="10" placeholder="11/10 Louisiana School for the Deaf, home\n11/12 Georgetown, neutral, Tournament\n12/1 Dodson, away" autofocus></textarea></label>' +
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Add games</button></div></form>');
+}
+
+// "11/10", "11/10/2026", "2026-11-10" → "2026-11-10". Month/day without a year uses the season (Jul–Dec = first year).
+function parseGameDate(text) {
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
+  if (m) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
+  m = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/.exec(text);
+  if (!m) return '';
+  const month = +m[1], day = +m[2];
+  if (month < 1 || month > 12 || day < 1 || day > 31) return '';
+  let year;
+  if (m[3]) year = m[3].length === 2 ? 2000 + +m[3] : +m[3];
+  else {
+    const sm = /^(\d{4})/.exec((S.data && S.data.settings.season) || '');
+    const now = new Date();
+    const start = sm ? +sm[1] : (now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1);
+    year = month >= 7 ? start : start + 1;
+  }
+  return year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+}
+function parseGameLine(lineText) {
+  const parts = lineText.split(',').map(x => x.trim());
+  const first = /^(\S+)\s+(.+)$/.exec(parts[0] || '');
+  if (!first) return null;
+  const date = parseGameDate(first[1]);
+  let opponent = first[2].trim(), location = 'home';
+  if (/^(@|at)\s+/i.test(opponent)) { location = 'away'; opponent = opponent.replace(/^(@|at)\s+/i, ''); }
+  else if (/^vs\.?\s+/i.test(opponent)) opponent = opponent.replace(/^vs\.?\s+/i, '');
+  let rest = parts.slice(1);
+  if (rest.length && /^(home|away|neutral)$/i.test(rest[0])) { location = rest[0].toLowerCase(); rest = rest.slice(1); }
+  return date && opponent ? { date: date, opponent: opponent, location: location, notes: rest.join(', ') } : null;
 }
 
 function bulkForm() {
@@ -1240,6 +1278,7 @@ const ACTS = {
   },
   editPlayer(el) { playerForm(S.data.players.find(p => p.id === el.dataset.id)); },
   bulkPlayers() { bulkForm(); },
+  bulkGames() { bulkGamesForm(); },
   deletePlayer(el) {
     if (!confirm('Remove this player? If they have stats, they are kept and the player is just marked inactive.')) return;
     coachSave('deletePlayer', { id: el.dataset.id });
@@ -1280,6 +1319,17 @@ const ACTS = {
 const FORMS = {
   player(f) {
     return coachSave('savePlayer', { id: f.elements.id.value, number: f.elements.number.value, name: f.elements.name.value, active: f.elements.active ? f.elements.active.checked : true });
+  },
+  bulkGames(f) {
+    const lines = f.elements.list.value.split('\n').map(x => x.trim()).filter(Boolean);
+    if (!lines.length) return modalErr('Type at least one game.');
+    const list = [];
+    for (const l of lines) {
+      const g = parseGameLine(l);
+      if (!g) return modalErr('Couldn\'t read: “' + l + '”. Start with a date like 11/10.');
+      list.push(g);
+    }
+    return coachSave('addGames', { list: list });
   },
   bulk(f) {
     const list = f.elements.list.value.split('\n').map(s => s.trim()).filter(Boolean).map(s => {

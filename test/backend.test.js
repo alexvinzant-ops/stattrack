@@ -238,3 +238,16 @@ test('older spreadsheets get the new columns added', () => {
   const me = again.api({ pin: '5555', action: 'me' });
   assert.deepEqual(me.perms, { trackAny: false, fixStats: true, viewStats: false, manage: false });
 });
+
+test('coach can add many games at once', () => {
+  const t = setup();
+  const all = t.coach('addGames', { list: [
+    { date: '2026-11-10', opponent: 'School A', location: 'home' },
+    { date: '2026-11-12', opponent: 'School B', location: 'neutral', notes: 'Tournament' },
+  ] });
+  assert.deepEqual(all.games.map(g => [g.date, g.opponent, g.location, g.status, g.notes]), [
+    ['2026-11-10', 'School A', 'home', 'scheduled', ''],
+    ['2026-11-12', 'School B', 'neutral', 'scheduled', 'Tournament'],
+  ]);
+  assert.throws(() => t.coach('addGames', { list: [{ date: 'soon', opponent: 'X' }] }), /date/);
+});
