@@ -8,9 +8,10 @@
  *
  * Roles:
  *   coach  : Coach PIN (Settings tab). Sees and edits everything.
- *   scorer : a parent's PIN (Parents tab). Can only open and record stats for
- *            games assigned to them that are not final. Cannot see season
- *            stats, other games, or other parents.
+ *   scorer : a parent's PIN (Parents tab). By default they can only open and
+ *            record stats for games assigned to them that are not final.
+ *            The coach can grant extra access per person (see PERMS).
+ *            Managing people and PINs is always coach-only.
  */
 
 const TEAM_DEFAULT = "GCS Boys' Basketball";
@@ -18,12 +19,12 @@ const TEAM_DEFAULT = "GCS Boys' Basketball";
 const TABLES = {
   Settings: ['Setting', 'Value'],
   Players: ['ID', 'Number', 'Name', 'Active'],
-  Parents: ['ID', 'Name', 'PIN', 'Active'],
-  Games: ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes'],
+  Parents: ['ID', 'Name', 'PIN', 'Active', 'Track Any', 'Fix Stats', 'View Stats', 'Manage'],
+  Games: ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes', 'Opp Roster'],
   Events: ['ID', 'Game ID', 'Player ID', 'Stat', 'Delta', 'Time', 'Entered By'],
 };
 // Columns stored as plain text so Sheets doesn't turn PINs, dates, or jersey "00" into numbers/dates.
-const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3], Games: [2] };
+const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3], Games: [2, 8] };
 
 // Base counters. Everything else (points, FG, %) is derived.
 const STATS = ['GP', 'FG2M', 'FG2A', 'FG3M', 'FG3A', 'FTM', 'FTA', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PF', 'OPP'];
@@ -31,6 +32,16 @@ const STATUSES = ['scheduled', 'live', 'final'];
 const LOCATIONS = ['home', 'away', 'neutral'];
 const REPORT_SHEETS = ['Season Stats', 'Game Log'];
 const TEAM_KEY = '_team';
+// Opponent players are tracked per game by jersey number: "opp:23", or "opp:team" for unknown/team.
+const OPP_ID = /^opp:(\d{1,3}|team)$/;
+
+// Extra access the coach can give each person. Column on the Parents tab → default.
+//   trackAny  : keep stats for any game that isn't final (not just ones assigned to them)
+//   fixStats  : change numbers in a box score (undoing their own taps is always allowed)
+//   viewStats : read-only season stats, player game logs and every box score
+//   manage    : add/edit players and games, assign stat keepers, mark games final (assistant coach)
+const PERMS = { trackAny: ['Track Any', false], fixStats: ['Fix Stats', true], viewStats: ['View Stats', false], manage: ['Manage', false] };
+const ALL_PERMS = { trackAny: true, fixStats: true, viewStats: true, manage: true };
 const MAX_FAILED_LOGINS = 30; // across everyone, per 15 minutes
 
 // ---------------------------------------------------------------------------
@@ -58,7 +69,9 @@ function api(req) {
   const who = authenticate_(req.pin);
   const action = ACTIONS[req.action];
   if (!action) throw new Error('Unknown action: ' + req.action);
-  if (action.coachOnly && who.role !== 'coach') throw new Error('Only the coach can do that.');
+  if (action.need === 'coach' && who.role !== 'coach') throw new Error('Only the coach can do that.');
+  if (action.need === 'manage' && !who.perms.manage) throw new Error('Only the coach can do that.');
+  if (action.need === 'view' && !(who.perms.viewStats || who.perms.manage)) throw new Error('Only the coach can do that.');
   return action.run(who, req.data || {});
 }
 
@@ -68,16 +81,17 @@ const ACTIONS = {
   game: { run: getGame_ },
   record: { run: record_ },
   setStatus: { run: setStatus_ },
-  all: { coachOnly: true, run: all_ },
-  savePlayer: { coachOnly: true, run: savePlayer_ },
-  addPlayers: { coachOnly: true, run: addPlayers_ },
-  deletePlayer: { coachOnly: true, run: deletePlayer_ },
-  saveGame: { coachOnly: true, run: saveGame_ },
-  deleteGame: { coachOnly: true, run: deleteGame_ },
-  saveParent: { coachOnly: true, run: saveParent_ },
-  deleteParent: { coachOnly: true, run: deleteParent_ },
-  saveSettings: { coachOnly: true, run: saveSettings_ },
-  writeReport: { coachOnly: true, run: writeReport_ },
+  setOppRoster: { run: setOppRoster_ },
+  all: { need: 'view', run: all_ },
+  savePlayer: { need: 'manage', run: savePlayer_ },
+  addPlayers: { need: 'manage', run: addPlayers_ },
+  deletePlayer: { need: 'manage', run: deletePlayer_ },
+  saveGame: { need: 'manage', run: saveGame_ },
+  deleteGame: { need: 'coach', run: deleteGame_ },
+  saveParent: { need: 'coach', run: saveParent_ },
+  deleteParent: { need: 'coach', run: deleteParent_ },
+  saveSettings: { need: 'coach', run: saveSettings_ },
+  writeReport: { need: 'coach', run: writeReport_ },
 };
 
 // ---------------------------------------------------------------------------
@@ -91,9 +105,9 @@ function authenticate_(pin) {
   const fails = Number(cache.get('pinFails') || 0);
   if (fails >= MAX_FAILED_LOGINS) throw new Error('AUTH: Too many wrong PINs. Try again in 15 minutes.');
 
-  if (pin === normPin_(getSettings_().coachPin)) return { role: 'coach', id: 'coach', name: 'Coach' };
+  if (pin === normPin_(getSettings_().coachPin)) return { role: 'coach', id: 'coach', name: 'Coach', perms: ALL_PERMS };
   const parent = readTable_('Parents').find(r => bool_(r.Active, true) && normPin_(r.PIN) === pin);
-  if (parent) return { role: 'scorer', id: str_(parent.ID), name: str_(parent.Name) };
+  if (parent) return { role: 'scorer', id: str_(parent.ID), name: str_(parent.Name), perms: perms_(parent) };
 
   cache.put('pinFails', String(fails + 1), 900);
   Utilities.sleep(1000);
@@ -126,22 +140,27 @@ function takenPins_() {
 // ---------------------------------------------------------------------------
 
 function me_(who) {
-  return { role: who.role, name: who.name, teamName: getSettings_().teamName };
+  return { role: who.role, id: who.id, name: who.name, teamName: getSettings_().teamName, perms: who.perms };
 }
 
 function scorerHome_(who) {
   const games = listGames_()
-    .filter(g => g.scorerId === who.id && g.status !== 'final')
+    .filter(g => g.status !== 'final' && (g.scorerId === who.id || who.perms.trackAny || who.perms.manage))
     .sort((a, b) => a.date.localeCompare(b.date));
   return { me: me_(who), games: games };
 }
 
 function getGame_(who, data) {
   const g = findGame_(data.gameId);
-  checkGameAccess_(who, g);
+  const track = canTrack_(who, g);
+  if (!track && !(who.perms.viewStats || who.perms.manage)) checkGameAccess_(who, g); // throws the reason
   const box = boxes_(g.id)[g.id] || {};
   const players = listPlayers_().filter(p => p.active || box[p.id]);
-  return { game: g, box: box, players: players };
+  return {
+    game: g, box: box, players: players,
+    canTrack: track,
+    canFix: track && !!(who.perms.fixStats || who.perms.manage),
+  };
 }
 
 function record_(who, data) {
@@ -152,6 +171,9 @@ function record_(who, data) {
   return withLock_(() => {
     const g = findGame_(data.gameId);
     checkGameAccess_(who, g);
+    if (!(who.perms.fixStats || who.perms.manage) && events.some(e => e.fix)) {
+      throw new Error("You don't have permission to change box score numbers.");
+    }
     const playerIds = {};
     listPlayers_().forEach(p => { playerIds[p.id] = true; });
     const seen = {};
@@ -168,6 +190,7 @@ function record_(who, data) {
       if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 10) throw new Error('Bad stat change.');
       let playerId = str_(e.playerId);
       if (stat === 'OPP') playerId = '';
+      else if (OPP_ID.test(playerId)) { if (stat === 'GP') throw new Error('Bad stat change.'); }
       else if (!playerIds[playerId]) throw new Error('Unknown player.');
       const time = isNaN(Date.parse(e.time)) ? new Date().toISOString() : new Date(e.time).toISOString();
       rows.push([id, g.id, playerId, stat, delta, time, who.name]);
@@ -182,7 +205,7 @@ function record_(who, data) {
 function setStatus_(who, data) {
   const status = str_(data.status);
   if (STATUSES.indexOf(status) < 0) throw new Error('Unknown status.');
-  if (who.role !== 'coach' && status === 'scheduled') throw new Error('Only the coach can do that.');
+  if (!who.perms.manage && status === 'scheduled') throw new Error('Only the coach can do that.');
   return withLock_(() => {
     const g = findGame_(data.gameId);
     checkGameAccess_(who, g);
@@ -191,31 +214,50 @@ function setStatus_(who, data) {
   });
 }
 
+/** Opponent jersey numbers (and optional names) for one game. Anyone who can track the game can set them. */
+function setOppRoster_(who, data) {
+  return withLock_(() => {
+    const g = findGame_(data.gameId);
+    checkGameAccess_(who, g);
+    const roster = oppRosterText_(data.roster);
+    updateGameField_(g.id, 'Opp Roster', roster);
+    return { ok: true, oppRoster: parseOppRoster_(roster) };
+  });
+}
+
+function canTrack_(who, g) {
+  if (who.role === 'coach' || who.perms.manage) return true;
+  if (g.status === 'final') return false;
+  return g.scorerId === who.id || !!who.perms.trackAny;
+}
+
 function checkGameAccess_(who, g) {
-  if (who.role === 'coach') return;
-  if (g.scorerId !== who.id) throw new Error("This game isn't assigned to you.");
+  if (canTrack_(who, g)) return;
   if (g.status === 'final') throw new Error('This game is final. Ask the coach to reopen it if something needs fixing.');
+  throw new Error("This game isn't assigned to you.");
 }
 
 // ---------------------------------------------------------------------------
 // Coach-only actions
 // ---------------------------------------------------------------------------
 
-function all_() {
+function all_(who) {
   const s = getSettings_();
+  const isCoach = !who || who.role === 'coach';
   let appUrl = '';
   try { appUrl = ScriptApp.getService().getUrl() || ''; } catch (e) { /* not deployed yet */ }
   let sheetUrl = '';
   try { sheetUrl = SpreadsheetApp.getActiveSpreadsheet().getUrl(); } catch (e) { /* ignore */ }
   return {
-    me: { role: 'coach', name: 'Coach', teamName: s.teamName },
+    me: who ? me_(who) : { role: 'coach', name: 'Coach', teamName: s.teamName, perms: ALL_PERMS },
     settings: { teamName: s.teamName, season: s.season },
     players: listPlayers_(),
-    parents: readTable_('Parents').map(parent_),
+    // PINs and permissions are only ever sent to the coach.
+    parents: readTable_('Parents').map(parent_).map(p => (isCoach ? p : { id: p.id, name: p.name, active: p.active })),
     games: listGames_(),
     boxes: boxes_(),
-    appUrl: appUrl,
-    sheetUrl: sheetUrl,
+    appUrl: isCoach ? appUrl : '',
+    sheetUrl: isCoach ? sheetUrl : '',
   };
 }
 
@@ -232,7 +274,7 @@ function savePlayer_(who, d) {
       appendRows_('Players', [[newId_('P'), number, name, active]]);
     }
   });
-  return all_();
+  return all_(who);
 }
 
 function addPlayers_(who, d) {
@@ -240,7 +282,7 @@ function addPlayers_(who, d) {
     .map(p => [newId_('P'), clean_(p.number, 3).replace(/[^0-9]/g, ''), clean_(p.name, 60), true])
     .filter(r => r[2]);
   withLock_(() => appendRows_('Players', list));
-  return all_();
+  return all_(who);
 }
 
 function deletePlayer_(who, d) {
@@ -254,7 +296,7 @@ function deletePlayer_(who, d) {
       sheet_('Players').deleteRow(row._row);
     }
   });
-  return all_();
+  return all_(who);
 }
 
 function saveGame_(who, d) {
@@ -267,18 +309,19 @@ function saveGame_(who, d) {
   const scorerId = str_(d.scorerId);
   if (scorerId && !readTable_('Parents').some(r => str_(r.ID) === scorerId)) throw new Error('Unknown parent.');
   const notes = clean_(d.notes, 200);
+  const oppRoster = oppRosterText_(d.oppRoster);
   withLock_(() => {
     if (d.id) {
       const row = findRow_('Games', d.id);
       writeRow_('Games', row._row, {
         ID: row.ID, Date: date, Opponent: opponent, Location: location,
-        'Scorer ID': scorerId, Status: status, Notes: notes,
+        'Scorer ID': scorerId, Status: status, Notes: notes, 'Opp Roster': oppRoster,
       });
     } else {
-      appendRows_('Games', [[newId_('G'), date, opponent, location, scorerId, status, notes]]);
+      appendRows_('Games', [[newId_('G'), date, opponent, location, scorerId, status, notes, oppRoster]]);
     }
   });
-  return all_();
+  return all_(who);
 }
 
 function deleteGame_(who, d) {
@@ -288,23 +331,29 @@ function deleteGame_(who, d) {
     const keep = readRaw_('Events').filter(r => str_(r[1]) !== str_(d.id));
     replaceRows_('Events', keep);
   });
-  return all_();
+  return all_(who);
 }
 
 function saveParent_(who, d) {
   const name = clean_(d.name, 60);
   if (!name) throw new Error('Parent name is required.');
   const active = d.active !== false;
+  const perms = d.perms || {};
+  const obj = { Name: name, Active: active };
+  Object.keys(PERMS).forEach(k => { obj[PERMS[k][0]] = k in perms ? !!perms[k] : PERMS[k][1]; });
   withLock_(() => {
     if (d.id) {
       const row = findRow_('Parents', d.id);
-      const pin = d.newPin ? randomPin_(4, takenPins_()) : str_(row.PIN);
-      writeRow_('Parents', row._row, { ID: row.ID, Name: name, PIN: pin, Active: active });
+      obj.ID = row.ID;
+      obj.PIN = d.newPin ? randomPin_(4, takenPins_()) : str_(row.PIN);
+      writeRow_('Parents', row._row, obj);
     } else {
-      appendRows_('Parents', [[newId_('U'), name, randomPin_(4, takenPins_()), active]]);
+      obj.ID = newId_('U');
+      obj.PIN = randomPin_(4, takenPins_());
+      appendRows_('Parents', [TABLES.Parents.map(h => obj[h])]);
     }
   });
-  return all_();
+  return all_(who);
 }
 
 function deleteParent_(who, d) {
@@ -315,7 +364,7 @@ function deleteParent_(who, d) {
       if (str_(g['Scorer ID']) === str_(d.id)) updateGameField_(str_(g.ID), 'Scorer ID', '');
     });
   });
-  return all_();
+  return all_(who);
 }
 
 function saveSettings_(who, d) {
@@ -325,7 +374,7 @@ function saveSettings_(who, d) {
     const season = clean_(d.season, 20);
     if (season) setSetting_('Season', season);
   });
-  return all_();
+  return all_(who);
 }
 
 /** Writes tables the page already computed into report tabs, so the coach can sort/chart in Sheets. */
@@ -378,8 +427,28 @@ function listPlayers_() {
   }));
 }
 
+function perms_(r) {
+  const out = {};
+  Object.keys(PERMS).forEach(k => { out[k] = bool_(r[PERMS[k][0]], PERMS[k][1]); });
+  return out;
+}
+
 function parent_(r) {
-  return { id: str_(r.ID), name: str_(r.Name), pin: str_(r.PIN), active: bool_(r.Active, true) };
+  return { id: str_(r.ID), name: str_(r.Name), pin: str_(r.PIN), active: bool_(r.Active, true), perms: perms_(r) };
+}
+
+/** "4 Smith, 12, 23 Jones" ⇄ [{number:'4', name:'Smith'}, ...] */
+function parseOppRoster_(text) {
+  const seen = {};
+  return str_(text).split(/[,\n]+/).map(part => {
+    const m = /^\s*#?(\d{1,3})\b\s*(.*)$/.exec(part);
+    return m ? { number: String(Number(m[1])), name: m[2].trim().slice(0, 40) } : null;
+  }).filter(p => p && !seen[p.number] && (seen[p.number] = true)).slice(0, 25);
+}
+
+function oppRosterText_(v) {
+  const list = Array.isArray(v) ? v.map(p => (p && p.number != null ? (p.number + ' ' + (p.name || '')).trim() : '')).join(', ') : str_(v);
+  return parseOppRoster_(clean_(list.replace(/\n/g, ','), 1000)).map(p => (p.number + ' ' + p.name).trim()).join(', ');
 }
 
 function listGames_() {
@@ -394,6 +463,7 @@ function listGames_() {
       scorerId: str_(r['Scorer ID']),
       status: STATUSES.indexOf(status) >= 0 ? status : 'scheduled',
       notes: str_(r.Notes),
+      oppRoster: parseOppRoster_(r['Opp Roster']),
     };
   });
 }
@@ -437,6 +507,17 @@ function ensureSetup_() {
   if (setupDone_) return;
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const missing = Object.keys(TABLES).filter(n => !ss.getSheetByName(n));
+  // Add columns introduced by newer versions of this app to existing tabs.
+  Object.keys(TABLES).forEach(name => {
+    const sh = ss.getSheetByName(name);
+    if (!sh) return;
+    const headers = TABLES[name];
+    const have = sh.getRange(1, 1, 1, headers.length).getValues()[0];
+    if (headers.some((h, i) => str_(have[i]) !== h) && headers.slice(0, have.filter(String).length).every((h, i) => str_(have[i]) === h)) {
+      sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+      (TEXT_COLUMNS[name] || []).forEach(c => sh.getRange(2, c, 999, 1).setNumberFormat('@'));
+    }
+  });
   const needSettings = () => {
     const have = {};
     readTable_('Settings').forEach(r => { have[str_(r.Setting)] = true; });

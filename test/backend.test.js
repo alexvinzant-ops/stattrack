@@ -45,7 +45,10 @@ test('parents get a PIN, can sign in, and are not allowed coach actions', () => 
   const t = setup();
   const { pat } = seed(t);
   assert.match(pat.pin, /^[1-9]\d{3}$/);
-  assert.deepEqual(t.call(pat.pin, 'me'), { role: 'scorer', name: 'Pat Parent', teamName: "GCS Boys' Basketball" });
+  assert.deepEqual(t.call(pat.pin, 'me'), {
+    role: 'scorer', id: pat.id, name: 'Pat Parent', teamName: "GCS Boys' Basketball",
+    perms: { trackAny: false, fixStats: true, viewStats: false, manage: false },
+  });
   assert.throws(() => t.call(pat.pin, 'all'), /Only the coach/);
   assert.throws(() => t.call(pat.pin, 'savePlayer', { name: 'X' }), /Only the coach/);
   assert.throws(() => t.call(pat.pin, 'writeReport', { sheets: {} }), /Only the coach/);
@@ -160,4 +163,78 @@ test('PIN typed into the sheet as a number still works', () => {
   const row = t.gas.sheets.Settings.data.find(r => r[0] === 'Coach PIN');
   row[1] = 424242;
   assert.equal(t.call('424242', 'me').role, 'coach');
+});
+
+test('coach decides what each parent can do', () => {
+  const t = setup();
+  const { pat, sam, g1, g2, ava } = seed(t);
+  const grant = (p, perms) => t.coach('saveParent', { id: p.id, name: p.name, perms });
+
+  // Defaults: no season stats; box-score fixes allowed.
+  assert.throws(() => t.call(pat.pin, 'all'), /Only the coach/);
+  t.call(pat.pin, 'record', { gameId: g1.id, events: [{ ...ev(ava.id, 'REB'), fix: true }] });
+
+  // Turn off box-score fixes: taps still work, fixes don't.
+  grant(pat, { fixStats: false });
+  assert.equal(t.call(pat.pin, 'game', { gameId: g1.id }).canFix, false);
+  assert.throws(() => t.call(pat.pin, 'record', { gameId: g1.id, events: [{ ...ev(ava.id, 'REB'), fix: true }] }), /permission/);
+  assert.equal(t.call(pat.pin, 'record', { gameId: g1.id, events: [ev(ava.id, 'REB')] }).saved, 1);
+
+  // Track any game.
+  grant(pat, { trackAny: true });
+  assert.deepEqual(t.call(pat.pin, 'scorerHome').games.map(g => g.id).sort(), [g1.id, g2.id].sort());
+  assert.equal(t.call(pat.pin, 'record', { gameId: g2.id, events: [ev(ava.id, 'AST')] }).saved, 1);
+
+  // Read-only season stats: can see everything except PINs, can't edit.
+  grant(sam, { viewStats: true });
+  const seen = t.call(sam.pin, 'all');
+  assert.ok(seen.boxes[g1.id]);
+  assert.equal(seen.parents[0].pin, undefined, 'PINs stay coach-only');
+  assert.equal(seen.appUrl, '');
+  assert.throws(() => t.call(sam.pin, 'savePlayer', { name: 'X' }), /Only the coach/);
+  t.coach('setStatus', { gameId: g1.id, status: 'final' });
+  const box = t.call(sam.pin, 'game', { gameId: g1.id });
+  assert.equal(box.canTrack, false, 'viewer opens final game read-only');
+  assert.throws(() => t.call(sam.pin, 'record', { gameId: g1.id, events: [ev(ava.id, 'AST')] }), /final/);
+
+  // Assistant coach: manage roster & games, but never people/PINs.
+  grant(sam, { manage: true });
+  assert.equal(t.call(sam.pin, 'savePlayer', { name: 'New Kid', number: '9' }).players.length, 3);
+  assert.equal(t.call(sam.pin, 'record', { gameId: g1.id, events: [ev(ava.id, 'AST')] }).saved, 1, 'can fix final games');
+  assert.throws(() => t.call(sam.pin, 'saveParent', { name: 'Y' }), /Only the coach/);
+  assert.throws(() => t.call(sam.pin, 'deleteGame', { id: g1.id }), /Only the coach/);
+});
+
+test('opponent players are tracked by number per game', () => {
+  const t = setup();
+  const { pat, g1 } = seed(t);
+  const r = t.call(pat.pin, 'setOppRoster', { gameId: g1.id, roster: '4 Smith, #12, 23 Jones\n12 dup, x' });
+  assert.deepEqual(r.oppRoster, [{ number: '4', name: 'Smith' }, { number: '12', name: '' }, { number: '23', name: 'Jones' }]);
+  t.call(pat.pin, 'record', { gameId: g1.id, events: [ev('opp:23', 'FG3M'), ev('opp:23', 'FG3A'), ev('opp:team', 'TO'), ev('opp:4', 'PF')] });
+  assert.throws(() => t.call(pat.pin, 'record', { gameId: g1.id, events: [ev('opp:abc', 'REB')] }), /Unknown player/);
+  assert.throws(() => t.call(pat.pin, 'record', { gameId: g1.id, events: [ev('opp:4', 'GP')] }), /Bad stat/);
+  const g = t.call(pat.pin, 'game', { gameId: g1.id });
+  assert.equal(g.game.oppRoster.length, 3);
+  assert.deepEqual(g.box['opp:23'], { FG3M: 1, FG3A: 1 });
+  assert.deepEqual(g.box['opp:team'], { TO: 1 });
+  // Coach can also set it from the game form.
+  const all = t.coach('saveGame', { ...g.game, oppRoster: [{ number: '7', name: 'Lee' }] });
+  assert.deepEqual(all.games.find(x => x.id === g1.id).oppRoster, [{ number: '7', name: 'Lee' }]);
+});
+
+test('older spreadsheets get the new columns added', () => {
+  const gas = createGas();
+  gas.context.setup();
+  // Simulate the first version's Parents/Games headers.
+  gas.sheets.Parents.data[0] = ['ID', 'Name', 'PIN', 'Active'];
+  gas.sheets.Parents.data.push(['U1', 'Old Parent', '5555', true]);
+  gas.sheets.Games.data[0] = ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes'];
+  // A new execution of the new code against the same spreadsheet.
+  const again = createGas();
+  for (const k of Object.keys(gas.sheets)) again.sheets[k] = gas.sheets[k];
+  again.context.setup();
+  assert.deepEqual(gas.sheets.Parents.data[0].slice(4), ['Track Any', 'Fix Stats', 'View Stats', 'Manage']);
+  assert.equal(gas.sheets.Games.data[0][7], 'Opp Roster');
+  const me = again.api({ pin: '5555', action: 'me' });
+  assert.deepEqual(me.perms, { trackAny: false, fixStats: true, viewStats: false, manage: false });
 });

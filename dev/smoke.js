@@ -43,15 +43,27 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.click('form[data-form=bulk] button[type=submit]');
     await coach.waitForSelector('text=Finn Post');
     await coach.click('[data-act=tab][data-tab=parents]');
-    await coach.click('[data-act=editParent]:has-text("Add parent")');
+    await coach.click('[data-act=editParent]:has-text("Add person")');
     await coach.fill('input[name=name]', 'Jamie (Ava’s mom)');
     await coach.click('form[data-form=parent] button[type=submit]');
     await coach.waitForSelector('.pin');
     const parentPin = (await coach.textContent('.pin')).trim();
+    // A second parent who may only view season stats.
+    await coach.click('[data-act=editParent]:has-text("Add person")');
+    await coach.fill('input[name=name]', 'Grandpa Joe');
+    await coach.uncheck('input[name=perm_fixStats]');
+    await coach.check('input[name=perm_viewStats]');
+    await coach.click('form[data-form=parent] button[type=submit]');
+    await coach.waitForSelector('text=Grandpa Joe');
+    const viewerPin = (await coach.textContent('.list-item:has-text("Grandpa Joe") .pin')).trim();
+    await coach.click('.list-item:has-text("Grandpa Joe") [data-act=editParent]');
+    await shot(coach, '02b-access-edit');
+    await coach.click('.modal [data-act=closeModal]');
     await shot(coach, '02-parents');
     await coach.click('[data-act=tab][data-tab=games]');
     await coach.click('[data-act=editGame]:has-text("New game")');
     await coach.fill('input[name=opponent]', 'Valley Christian');
+    await coach.fill('textarea[name=oppRoster]', '4 Smith, 12, 23');
     await coach.selectOption('select[name=scorerId]', { label: 'Jamie (Ava’s mom)' });
     await coach.click('form[data-form=game] button[type=submit]');
     await coach.waitForSelector('text=vs Valley Christian');
@@ -94,8 +106,27 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await shot(parent, '04-tracker');
     await parent.evaluate(() => { window.__offline = false; Queue.delay = 100; Queue.flush(); });
     await parent.waitForSelector('.sync:text("All saved")');
-    const score = await parent.$$eval('.score .pts', els => els.map(e => e.textContent));
+    let score = await parent.$$eval('.score .pts', els => els.map(e => e.textContent));
     assert.deepEqual(score, ['8', '5']);
+
+    // Opponent stats: switch sides, add a number, track individuals and the team.
+    await parent.click('[data-act=side][data-side=opp]');
+    assert.equal(await parent.locator('.pbtn').count(), 4, '3 numbers + TEAM');
+    await parent.click('[data-act=oppRoster]');
+    await parent.fill('textarea[name=roster]', '4 Smith\n12\n23\n30');
+    await parent.click('form[data-form=oppRoster] button[type=submit]');
+    await parent.waitForSelector('.pbtn:has(.n:text-is("#30"))');
+    const oppTap = async (label, code) => {
+      await parent.click(`.pbtn:has(.n:text-is("${label}"))`);
+      await parent.click(`.sbtn[data-code="${code}"]`);
+    };
+    await oppTap('#23', '3M'); await oppTap('#30', '2X'); await oppTap('TEAM', 'TO'); await oppTap('#4', 'PF');
+    await shot(parent, '04b-opponent');
+    score = await parent.$$eval('.score .pts', els => els.map(e => e.textContent));
+    assert.deepEqual(score, ['8', '8'], 'opponent 3 adds to their score');
+    await parent.click('[data-act=side][data-side=us]');
+    await tap(3, 'FM');
+    await parent.waitForSelector('.sync:text("All saved")');
 
     await parent.click('[data-act=gameTab][data-tab=box]');
     await parent.waitForSelector('tr.total');
@@ -112,11 +143,14 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.click('[data-act=tab][data-tab=season]');
     await coach.waitForSelector('text=Player stats');
     const rec = await coach.textContent('.tile .value');
-    assert.equal(rec.replace(/\s/g, ''), '1–0');
+    assert.equal(rec.replace(/\s/g, ''), '1–0'); // 9–8
     const ben = await coach.$$eval('tr:has-text("Ben Center") td', tds => tds.map(t => t.textContent));
     // Player, GP, PTS, REB, AST, STL, BLK, TO, FG, FG%, 3P, 3P%, FT, FT%, PF
     assert.deepEqual(ben.slice(1, 9), ['1', '3.0', '2.0', '0.0', '0.0', '1.0', '0.0', '1.0-1.0']);
     await shot(coach, '06-season');
+    await coach.waitForSelector('text=Us vs. opponents');
+    const oppFg = await coach.$$eval('tr:has(td:text-is("FG%")) td', tds => tds.map(t => t.textContent));
+    assert.deepEqual(oppFg, ['FG%', '75.0', '50.0']);
     await coach.click('[data-act=seasonMode][data-m=tot]');
     await coach.click('tr[data-act=openPlayer]:has-text("Ava Guard")');
     await coach.waitForSelector('text=Game log');
@@ -125,7 +159,23 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.click('[data-act=writeReport]');
     await coach.waitForSelector('text=Season Stats and Game Log tabs updated');
 
+    // Read-only viewer: sees stats, can't edit or track, no Access tab.
+    const viewer = await newPhone();
+    await typePin(viewer, viewerPin);
+    await viewer.waitForSelector('text=Player stats');
+    assert.equal(await viewer.locator('[data-tab=parents]').count(), 0);
+    assert.equal(await viewer.locator('[data-tab=roster]').count(), 0);
+    assert.equal(await viewer.locator('text=Google Sheet').count(), 0);
+    await viewer.click('[data-act=tab][data-tab=games]');
+    assert.equal(await viewer.locator('[data-act=editGame]').count(), 0);
+    await viewer.click('.card:has-text("Valley Christian") [data-act=openBox]');
+    await viewer.waitForSelector('tr.total');
+    assert.equal(await viewer.locator('tr[data-act=editLine]').count(), 0, 'read-only box score');
+    assert.equal(await viewer.locator('[data-tab=track]').count(), 0);
+    await shot(viewer, '08-viewer-box');
+
     const saved = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+    assert.ok(saved['Game Log'].some(r => r[6] === 'Opponent' && r[7] === '23' && r[9] === 3), 'opponent rows exported');
     assert.equal(saved['Season Stats'][0][1], 'Player');
     assert.equal(saved['Season Stats'].length, 6, 'five players who played');
 
