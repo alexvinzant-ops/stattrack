@@ -47,7 +47,7 @@ test('parents get a PIN, can sign in, and are not allowed coach actions', () => 
   assert.match(pat.pin, /^[1-9]\d{3}$/);
   assert.deepEqual(t.call(pat.pin, 'me'), {
     role: 'scorer', id: pat.id, name: 'Pat Parent', teamName: 'My Team',
-    perms: { trackAny: false, fixStats: true, viewStats: false, manage: false, viewOwn: false, trackGroups: ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf', 'opp'], viewGroups: ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf'] },
+    perms: { trackAny: false, fixStats: true, viewStats: false, manage: false, viewOwn: false, clock: false, trackGroups: ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf', 'opp'], viewGroups: ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf', 'min'] },
     players: [],
   });
   assert.throws(() => t.call(pat.pin, 'all'), /Only the coach/);
@@ -230,15 +230,19 @@ test('older spreadsheets get the new columns added', () => {
   gas.sheets.Parents.data[0] = ['ID', 'Name', 'PIN', 'Active'];
   gas.sheets.Parents.data.push(['U1', 'Old Parent', '5555', true]);
   gas.sheets.Games.data[0] = ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes'];
+  gas.sheets.Events.data[0] = ['ID', 'Game ID', 'Player ID', 'Stat', 'Delta', 'Time', 'Entered By', 'Book', 'Period'];
+  delete gas.sheets.Flow;
   // A new execution of the new code against the same spreadsheet.
   const again = createGas();
   for (const k of Object.keys(gas.sheets)) again.sheets[k] = gas.sheets[k];
   again.context.setup();
-  assert.deepEqual(gas.sheets.Parents.data[0].slice(4), ['Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players', 'Email', 'Phone', 'Invited', 'Track Stats', 'See Stats']);
+  assert.deepEqual(gas.sheets.Parents.data[0].slice(4), ['Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players', 'Email', 'Phone', 'Invited', 'Track Stats', 'See Stats', 'Run Clock']);
   assert.equal(gas.sheets.Events.data[0][7], 'Book');
+  assert.equal(gas.sheets.Events.data[0][9], 'Fix');
+  assert.deepEqual(again.sheets.Flow.data[0], ['ID', 'Game ID', 'Type', 'Clock', 'Period', 'Players', 'Time', 'Entered By']);
   assert.equal(gas.sheets.Games.data[0][7], 'Opp Roster');
   const me = again.api({ pin: '5555', action: 'me' });
-  assert.deepEqual(me.perms, { trackAny: false, fixStats: true, viewStats: false, manage: false, viewOwn: false, trackGroups: ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf', 'opp'], viewGroups: ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf'] });
+  assert.deepEqual(me.perms, { trackAny: false, fixStats: true, viewStats: false, manage: false, viewOwn: false, clock: false, trackGroups: ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf', 'opp'], viewGroups: ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf', 'min'] });
 });
 
 test('coach can add many games at once', () => {
@@ -514,4 +518,101 @@ test('offensive and defensive rebounds are separate stats in the rebounds group'
   assert.deepEqual(t.call(sam.pin, 'all').boxes[g1.id][ava.id], { OREB: 1, DREB: 2 });
   t.coach('saveParent', { id: sam.id, name: sam.name, perms: { viewStats: true }, viewGroups: ['ast'] });
   assert.equal(t.call(sam.pin, 'all').boxes[g1.id][ava.id], undefined);
+});
+
+// ---------------------------------------------------------------------------
+// Minutes and plus/minus (the game clock and subs)
+// ---------------------------------------------------------------------------
+const T0 = Date.parse('2026-11-14T19:00:00Z');
+const at = s => new Date(T0 + s * 1000).toISOString();
+let fn = 0;
+const flow = (type, clock, period, time, players) => ({ id: 'f' + (++fn), type, clock, period, time: at(time), players });
+const play = (playerId, stat, delta, time, period, fix) => ({ id: 'e' + (++n), playerId, stat, delta, time: at(time), period, fix });
+
+test('only people allowed to run the clock can record subs and clock changes', () => {
+  const t = setup();
+  const { pat, sam, g1, ava, ben } = seed(t);
+  const rows = [flow('lineup', 0, 1, 0, [ava.id, ben.id]), flow('start', 0, 1, 0)];
+  assert.throws(() => t.call(pat.pin, 'flow', { gameId: g1.id, rows }), /run the clock/);
+  t.coach('saveParent', { id: pat.id, name: pat.name, perms: { clock: true } });
+  t.coach('saveParent', { id: sam.id, name: sam.name, perms: { clock: true } });
+  assert.throws(() => t.call(sam.pin, 'flow', { gameId: g1.id, rows }), /isn't assigned/);
+  assert.equal(t.call(pat.pin, 'flow', { gameId: g1.id, rows }).saved, 2);
+  assert.equal(t.call(pat.pin, 'flow', { gameId: g1.id, rows }).saved, 0, 'retries are not saved twice');
+  assert.equal(t.call(pat.pin, 'game', { gameId: g1.id }).canClock, true);
+  assert.equal(t.call(pat.pin, 'game', { gameId: g1.id }).game.status, 'live');
+
+  const six = Array.from({ length: 6 }, (_, i) => t.coach('savePlayer', { name: 'Extra ' + i }).players.slice(-1)[0].id);
+  assert.throws(() => t.call(pat.pin, 'flow', { gameId: g1.id, rows: [flow('lineup', 0, 1, 0, six)] }), /up to 5/);
+  assert.throws(() => t.call(pat.pin, 'flow', { gameId: g1.id, rows: [flow('lineup', 0, 1, 0, ['nobody'])] }), /up to 5/);
+  assert.throws(() => t.call(pat.pin, 'flow', { gameId: g1.id, rows: [flow('jump', 0, 1, 0)] }), /Unknown clock/);
+  assert.throws(() => t.call(pat.pin, 'flow', { gameId: g1.id, rows: [flow('start', -5, 1, 0)] }), /Bad clock/);
+  assert.throws(() => t.call(pat.pin, 'flow', { gameId: g1.id, rows: [flow('start', 0, 0, 0)] }), /Bad quarter/);
+});
+
+test('minutes come from the clock, and plus/minus from who was on the court', () => {
+  const t = setup();
+  const { g1, ava, ben } = seed(t);
+  t.coach('flow', { gameId: g1.id, rows: [
+    flow('lineup', 0, 1, 0, [ava.id]), flow('start', 0, 1, 0),
+    flow('stop', 60, 1, 60),
+    flow('lineup', 60, 1, 65, [ben.id]), // sub while the clock is stopped
+    flow('start', 60, 1, 80), flow('stop', 120, 1, 140),
+    flow('period', 120, 2, 150), flow('start', 120, 2, 160), flow('stop', 150, 2, 190),
+  ] });
+  t.coach('record', { gameId: g1.id, events: [
+    play(ava.id, 'FG2M', 1, 30, 1),
+    play('', 'OPP', 3, 70, 1),             // while Ben is in
+    play(ben.id, 'FTM', 1, 170, 2),
+    play('opp:4', 'FG2M', 1, 175, 2),      // opponent player's basket
+    play(ava.id, 'FG2M', 1, 200, 2, true), // a box score fix: not a play on the court
+    play(ben.id, 'FG3M', 1, 180, 2), play(ben.id, 'FG3M', -1, 180, 2), // a basket and its undo
+  ] });
+  const f = t.coach('game', { gameId: g1.id }).flow;
+  assert.deepEqual(f.min, { [ava.id]: 60, [ben.id]: 90 });
+  assert.deepEqual(f.pm, { [ava.id]: 2, [ben.id]: -4 });
+  assert.deepEqual(f.periods[1].min, { [ava.id]: 60, [ben.id]: 60 });
+  assert.deepEqual(f.periods[2], { min: { [ben.id]: 30 }, pm: { [ben.id]: -1 } });
+  assert.deepEqual(f.lineup, [ben.id]);
+  assert.deepEqual(f.clock, { elapsed: 150, running: false, period: 2, periodStart: { 1: 0, 2: 120 }, updated: T0 + 190000 });
+  assert.deepEqual(t.coach('all').flows[g1.id], { min: f.min, pm: f.pm });
+
+  // A running clock counts up to now.
+  t.coach('flow', { gameId: g1.id, rows: [{ id: 'run', type: 'start', clock: 150, period: 2, time: new Date(Date.now() - 20000).toISOString() }] });
+  const live = t.coach('game', { gameId: g1.id }).flow;
+  assert.equal(live.clock.running, true);
+  assert.ok(live.clock.elapsed >= 169 && live.clock.elapsed <= 172, String(live.clock.elapsed));
+  assert.ok(live.min[ben.id] >= 109 && live.min[ben.id] <= 112);
+});
+
+test('minutes and plus/minus are only shown to people allowed to see them', () => {
+  const t = setup();
+  const { pat, sam, g1, ava } = seed(t);
+  t.coach('flow', { gameId: g1.id, rows: [flow('lineup', 0, 1, 0, [ava.id]), flow('start', 0, 1, 0), flow('stop', 60, 1, 60)] });
+  t.coach('record', { gameId: g1.id, events: [play(ava.id, 'FG2M', 1, 30, 1)] });
+  t.coach('setStatus', { gameId: g1.id, status: 'final' });
+
+  t.coach('saveParent', { id: sam.id, name: sam.name, perms: { viewStats: true }, viewGroups: ['scoring'] });
+  assert.deepEqual(t.call(sam.pin, 'all').flows, {});
+  assert.equal(t.call(sam.pin, 'game', { gameId: g1.id }).flow, undefined);
+  t.coach('saveParent', { id: sam.id, name: sam.name, perms: { viewStats: true }, viewGroups: ['scoring', 'min'] });
+  assert.deepEqual(t.call(sam.pin, 'all').flows[g1.id], { min: { [ava.id]: 60 }, pm: { [ava.id]: 2 } });
+  assert.equal(t.call(sam.pin, 'game', { gameId: g1.id }).flow.min[ava.id], 60);
+
+  t.coach('saveParent', { id: pat.id, name: pat.name, players: [ava.id], perms: { viewOwn: true } });
+  assert.deepEqual(t.call(pat.pin, 'scorerHome').myStats[0].flow, { min: { [ava.id]: 60 }, pm: { [ava.id]: 2 } });
+  t.coach('saveParent', { id: pat.id, name: pat.name, players: [ava.id], perms: { viewOwn: true }, viewGroups: ['scoring'] });
+  assert.equal(t.call(pat.pin, 'scorerHome').myStats[0].flow, undefined);
+});
+
+test('coach sets the quarter length; deleting a game removes its clock entries', () => {
+  const t = setup();
+  const { g1, ava } = seed(t);
+  assert.equal(t.coach('all').settings.quarterMinutes, 8);
+  assert.equal(t.coach('saveSettings', { quarterMinutes: '6' }).settings.quarterMinutes, 6);
+  assert.throws(() => t.coach('saveSettings', { quarterMinutes: '0' }), /1 to 20/);
+  t.coach('flow', { gameId: g1.id, rows: [flow('lineup', 0, 1, 0, [ava.id])] });
+  assert.equal(t.gas.sheets.Flow.data.length, 2);
+  t.coach('deleteGame', { id: g1.id });
+  assert.equal(t.gas.sheets.Flow.data.filter(r => r.some(v => v !== '')).length, 1);
 });

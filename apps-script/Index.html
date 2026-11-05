@@ -239,6 +239,18 @@ label.check span .muted, label.check.choice span .muted { display: block; font-w
 .player-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .side-seg button { flex: 1; padding: 9px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .plays .undone .grow { text-decoration: line-through; color: var(--muted); }
+.pbtn.oncourt { box-shadow: inset 0 -5px 0 var(--good); }
+.clock-bar { background: #142c66; color: var(--accent-ink); }
+.clock-bar .inner { max-width: 920px; margin: 0 auto; padding: 8px 16px 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.clock-time { font: 800 26px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; min-width: 82px; }
+.clock-time.run { color: #7ff0b4; }
+.clock-bar .btn { min-height: 38px; padding: 6px 12px; color: var(--ink); }
+.clock-bar .btn.go { background: var(--good); color: #fff; border-color: var(--good); }
+.clock-bar .btn.stop { background: var(--gold); color: #1d2433; border-color: var(--gold); }
+.clock-bar .court { flex-basis: 100%; font-size: 13px; opacity: .9; }
+.clock-bar .court b { font-variant-numeric: tabular-nums; }
+.clock-input { font: 800 28px ui-monospace, SFMono-Regular, Menlo, monospace !important; text-align: center; }
+svg.trend .zero { stroke: var(--muted); stroke-width: 1; }
 
 .stepper-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
 .stepper-row:first-of-type { border-top: 0; }
@@ -435,11 +447,15 @@ const Queue = {
     if (this.busy || this.paused || !this.items.length || !S.pin) return;
     this.busy = true;
     clearTimeout(this.timer);
-    const gameId = this.items[0].gameId, mode = this.items[0].mode || '';
-    const batch = this.items.filter(e => e.gameId === gameId && (e.mode || '') === mode).slice(0, 100);
+    // Plays and clock entries (kind 'flow') go to the server in separate batches, in the order entered.
+    const gameId = this.items[0].gameId, mode = this.items[0].mode || '', kind = this.items[0].kind || '';
+    const same = e => e.gameId === gameId && (e.mode || '') === mode && (e.kind || '') === kind;
+    const batch = [];
+    for (const e of this.items) { if (!same(e) || batch.length >= 100) break; batch.push(e); }
     let ok = false;
     try {
-      await call('record', { gameId: gameId, mode: mode, events: batch.map(e => ({ id: e.id, playerId: e.playerId, stat: e.stat, delta: e.delta, time: e.time, fix: !!e.fix, period: e.period })) });
+      if (kind === 'flow') await call('flow', { gameId: gameId, rows: batch.map(e => ({ id: e.id, type: e.type, clock: e.clock, period: e.period, players: e.players, time: e.time })) });
+      else await call('record', { gameId: gameId, mode: mode, events: batch.map(e => ({ id: e.id, playerId: e.playerId, stat: e.stat, delta: e.delta, time: e.time, fix: !!e.fix, period: e.period })) });
       const sent = new Set(batch.map(e => e.id));
       this.items = this.items.filter(e => !sent.has(e.id));
       this.error = ''; this.offline = false; this.delay = 2000;
@@ -449,8 +465,7 @@ const Queue = {
       this.error = err.network ? '' : err.message;
       if (!err.network) {
         // Don't let one stuck game block plays for another game.
-        const stuck = e => e.gameId === gameId && (e.mode || '') === mode;
-        this.items = this.items.filter(e => !stuck(e)).concat(this.items.filter(stuck));
+        this.items = this.items.filter(e => !same(e)).concat(this.items.filter(same));
       }
       this.timer = setTimeout(() => this.flush(), this.delay);
       this.delay = Math.min(this.delay * 2, 30000);
@@ -597,7 +612,7 @@ const TRENDS = [
   { k: 'ftp', l: 'FT%', g: 'scoring', pct: ['FTM', 'FTA'] },
 ];
 function trendChart(games) {
-  const opts = TRENDS.filter(o => canSeeGroup(o.g)).concat(typeof flowTrends === 'function' ? flowTrends() : []);
+  const opts = TRENDS.filter(o => canSeeGroup(o.g)).concat(flowTrends(games));
   if (games.length < 2 || !opts.length) return '';
   const o = opts.find(x => x.k === S.trendStat) || opts[0];
   const pts = games.map(x => {
@@ -611,26 +626,31 @@ function trendChart(games) {
     const m = games.reduce((a, x) => a + x.l[o.pct[0]], 0), at = games.reduce((a, x) => a + x.l[o.pct[1]], 0);
     avgV = at ? 100 * m / at : 0;
   } else avgV = vals.reduce((a, v) => a + v, 0) / vals.length;
-  const max = Math.max(o.pct ? 100 : 1, ...vals, avgV);
+  // +/- can go below zero, so bars grow up or down from the zero line.
+  const max = Math.max(o.pct ? 100 : 1, ...vals, avgV), min = Math.min(0, ...vals, avgV);
   const W = 640, H = 260, padL = 20, padB = 48, padT = 28, bw = (W - padL - 8) / games.length;
-  const y = v => padT + (H - padT - padB) * (1 - v / max);
+  const y = v => padT + (H - padT - padB) * (max - v) / (max - min);
+  const fmt = v => (o.pct ? v.toFixed(0) + '%' : o.signed ? fmtPM(v) : v);
+  const zero = y(0);
   const bars = games.map((x, i) => {
     const v = pts[i], cx = padL + i * bw + bw / 2;
     const label = '<text x="' + cx + '" y="' + (H - padB + 20) + '" class="tl">' + esc(fmtDate(x.game.date).replace(/^\w+, /, '')) + '</text>' +
       '<text x="' + cx + '" y="' + (H - padB + 38) + '" class="tl op">' + esc(String(x.game.opponent).slice(0, 10)) + '</text>';
-    if (v == null) return label + '<text x="' + cx + '" y="' + (H - padB - 4) + '" class="tv muted-t">–</text>';
-    const top = y(v), w = Math.max(6, Math.min(48, bw * 0.6));
-    return '<rect x="' + (cx - w / 2) + '" y="' + top + '" width="' + w + '" height="' + Math.max(1, H - padB - top) + '" rx="4" class="bar"/>' +
-      '<text x="' + cx + '" y="' + (top - 4) + '" class="tv">' + (o.pct ? v.toFixed(0) + '%' : v) + '</text>' + label;
+    if (v == null) return label + '<text x="' + cx + '" y="' + (zero - 4) + '" class="tv muted-t">–</text>';
+    const top = y(Math.max(v, 0)), bottom = y(Math.min(v, 0)), w = Math.max(6, Math.min(48, bw * 0.6));
+    return '<rect x="' + (cx - w / 2) + '" y="' + top + '" width="' + w + '" height="' + Math.max(1, bottom - top) + '" rx="4" class="bar"/>' +
+      '<text x="' + cx + '" y="' + (top - 4) + '" class="tv">' + fmt(v) + '</text>' + label;
   }).join('');
   const ay = y(avgV);
   const svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" class="trend" role="img" aria-label="' + esc(o.l) + ' by game">' +
-    '<line x1="' + padL + '" x2="' + (W - 4) + '" y1="' + (H - padB) + '" y2="' + (H - padB) + '" class="axis"/>' + bars +
+    '<line x1="' + padL + '" x2="' + (W - 4) + '" y1="' + (H - padB) + '" y2="' + (H - padB) + '" class="axis"/>' +
+    (min < 0 ? '<line x1="' + padL + '" x2="' + (W - 4) + '" y1="' + zero + '" y2="' + zero + '" class="zero"/>' : '') + bars +
     '<line x1="' + padL + '" x2="' + (W - 4) + '" y1="' + ay + '" y2="' + ay + '" class="avg"/>' +
-    '<text x="' + (W - 6) + '" y="' + (ay - 4) + '" class="avg-t">avg ' + (o.pct ? avgV.toFixed(1) + '%' : avgV.toFixed(1)) + '</text></svg>';
+    '<text x="' + (W - 6) + '" y="' + (ay - 4) + '" class="avg-t">avg ' + (o.pct ? avgV.toFixed(1) + '%' : (o.signed && avgV > 0 ? '+' : '') + avgV.toFixed(1)) + '</text></svg>';
   return '<div class="card"><div class="row wrap-row" style="margin-bottom:6px"><h2 style="margin:0;flex:1">Trend</h2></div>' +
     '<div class="seg trend-seg">' + opts.map(x => '<button class="' + (x.k === o.k ? 'on' : '') + '" data-act="trendStat" data-k="' + x.k + '">' + x.l + '</button>').join('') + '</div>' +
-    '<div class="trend-wrap">' + svg + '</div><p class="muted small" style="margin:4px 0 0">One bar per game, oldest on the left. Dashed line = season average.</p></div>';
+    '<div class="trend-wrap">' + svg + '</div><p class="muted small" style="margin:4px 0 0">One bar per game, oldest on the left. Dashed line = season average.' +
+    (o.g === 'min' ? ' Only games where the clock was kept count toward the average.' : '') + '</p></div>';
 }
 
 function viewMyStats(mine, myStats) {
@@ -639,11 +659,13 @@ function viewMyStats(mine, myStats) {
     let tot = {};
     games.forEach(x => { tot = addLine(tot, x.box[p.id]); });
     const l = line(tot), gp = games.length;
-    const tiles = statTiles(l, gp, ['PPG', 'RPG', 'APG', 'SPG', 'FG%', 'FT%']);
-    const rows = games.slice().reverse().map(x => '<tr><td>' + esc(fmtDate(x.game.date)) + ' <span class="muted">' + esc(gameTitle(x.game)) + '</span></td>' + boxCells(line(x.box[p.id])) + '</tr>').join('');
+    const wf = games.some(x => hasFlow(x.flow));
+    const tiles = statTiles(l, gp, ['PPG', 'RPG', 'APG', 'SPG', 'FG%', 'FT%']) + (wf ? flowTiles(games.map(x => x.flow), p.id) : '');
+    const gl = x => flowLine(line(x.box[p.id]), x.flow, p.id);
+    const rows = games.slice().reverse().map(x => '<tr><td>' + esc(fmtDate(x.game.date)) + ' <span class="muted">' + esc(gameTitle(x.game)) + '</span></td>' + boxCells(gl(x), wf) + '</tr>').join('');
     return '<div class="section-title">' + esc(playerLabel(p)) + ': official stats</div><div class="tiles">' + tiles + '</div>' +
-      trendChart(games.map(x => ({ game: x.game, l: line(x.box[p.id]) }))) +
-      '<div class="card"><div class="table-wrap"><table><thead><tr><th>Game</th>' + boxHead() + '</tr></thead><tbody>' +
+      trendChart(games.map(x => ({ game: x.game, l: gl(x) }))) +
+      '<div class="card"><div class="table-wrap"><table><thead><tr><th>Game</th>' + boxHead(wf) + '</tr></thead><tbody>' +
       (rows || '<tr><td colspan="12" class="muted" style="position:static">No games yet</td></tr>') + '</tbody></table></div></div>';
   }).join('');
 }
@@ -691,7 +713,7 @@ function viewGame() {
     '<div class="team"><div class="nm">' + esc(g.opponent) + '</div><div class="pts">' + (canSeeGroup('scoring') ? oppPts(t.box) : '–') + '</div>' +
     (t.canTrack && canTrackGroup('opp') ? '<div class="opp-pad" aria-label="Opponent points">' : '<div class="hidden">') + '<button data-act="opp" data-d="1">+1</button><button data-act="opp" data-d="2">+2</button><button data-act="opp" data-d="3">+3</button><button data-act="opp" data-d="-1" ' + (oppPts(t.box) ? '' : 'disabled') + '>−1</button></div></div>' +
     '</div></div>';
-  const head = topBar(gameTitle(g), left, t.canTrack ? syncHtml() : '', tabs) + scoreboard + (t.canTrack && t.tab === 'track' ? periodBar() : '');
+  const head = topBar(gameTitle(g), left, t.canTrack ? syncHtml() : '', tabs) + scoreboard + (t.canTrack && t.tab === 'track' ? periodBar() + clockBar() : '');
   const body = t.tab === 'track' && t.canTrack ? viewTracker() : viewGameBox(coach);
   return head + '<div class="wrap">' + body + '</div>';
 }
@@ -708,6 +730,107 @@ function periodBar() {
   const fouls = t.mode ? '' : '<div class="team-fouls">Team fouls ' + periodLabel(t.period) + ': <b>' + esc(shortTeam()) + ' ' + n0(q.usPF) + '</b> · ' + esc(t.game.opponent) + ' ' + n0(q.oppPF) + '</div>';
   return '<div class="period-bar"><div class="inner"><div class="seg period-seg">' + btns.join('') + '</div>' + fouls + '</div></div>';
 }
+
+// ---------------------------------------------------------------------------
+// Game clock and subs (minutes & +/-). One stat keeper runs it. The clock counts game time
+// played; every start, pause, sub and new quarter is saved (offline-safe, like plays) with the
+// game time it happened at, and the server works out minutes and plus/minus from those.
+// t.clock = { elapsed: seconds at the last start/pause, anchor: when it started (ms) or null,
+//             periodStart: { quarter: elapsed when it began }, lineup: [ids], updated: ms }
+// ---------------------------------------------------------------------------
+const clockKey = gameId => 'gcs_clock_' + gameId;
+const clockNow = c => c.elapsed + (c.anchor ? Math.max(0, Date.now() - c.anchor) / 1000 : 0);
+const periodLength = n => 60 * (S.t.quarterMinutes || 8) * (n <= 4 ? 1 : 0.5);
+function clockLeft() {
+  const t = S.t, c = t.clock;
+  const start = t.period in c.periodStart ? c.periodStart[t.period] : clockNow(c);
+  return Math.max(0, start + periodLength(t.period) - clockNow(c));
+}
+function saveClock() { store.set(clockKey(S.t.game.id), S.t.clock); }
+// The newer of this phone's clock and the server's (another phone may have taken over).
+function loadClock(t) {
+  const local = store.get(clockKey(t.game.id), null);
+  const f = (t.flow && t.flow.clock) || null;
+  if (local && (!f || local.updated >= f.updated)) return local;
+  if (f && f.updated) {
+    return { elapsed: f.elapsed, anchor: f.running ? Date.now() : null, periodStart: f.periodStart || {}, lineup: (t.flow.lineup || []).slice(), updated: f.updated };
+  }
+  return { elapsed: 0, anchor: null, periodStart: {}, lineup: [], updated: 0 };
+}
+function flowRow(type, extra) {
+  const t = S.t, c = t.clock;
+  return Object.assign({ id: uid(), gameId: t.game.id, mode: '', kind: 'flow', type: type, clock: Math.round(clockNow(c)), period: t.period || 1, time: new Date().toISOString() }, extra || {});
+}
+function emitFlow(rows) {
+  const t = S.t, c = t.clock;
+  // The first entry in a quarter marks where that quarter began on the clock.
+  if (!(t.period in c.periodStart)) {
+    const start = flowRow('period');
+    c.periodStart[t.period] = start.clock;
+    rows = [start].concat(rows);
+  }
+  c.updated = Date.now();
+  saveClock();
+  Queue.push(rows);
+}
+function startClock() {
+  const c = S.t.clock;
+  if (c.anchor) return;
+  if (clockLeft() <= 0) return toast(periodLabel(S.t.period) + ' is over. Tap the next quarter first.');
+  emitFlow([flowRow('start')]);
+  c.anchor = Date.now();
+  saveClock();
+}
+// at: stop at this game time (end of the quarter) instead of now.
+function stopClock(at) {
+  const c = S.t.clock;
+  if (!c.anchor) return;
+  c.elapsed = Math.round(at == null ? clockNow(c) : at);
+  c.anchor = null;
+  emitFlow([flowRow('stop')]);
+}
+function clockBar() {
+  const t = S.t;
+  if (!t.canClock || t.mode || !t.clock) return '';
+  const c = t.clock, run = !!c.anchor;
+  const on = c.lineup.map(id => t.players.find(p => p.id === id)).filter(Boolean).sort(byNumber);
+  return '<div class="clock-bar"><div class="inner">' +
+    '<span class="clock-time ' + (run ? 'run' : '') + '" data-clock>' + fmtClock(clockLeft()) + '</span>' +
+    (run ? '<button class="btn stop" data-act="clockStop">❚❚ Pause</button>' : '<button class="btn go" data-act="clockStart">▶ Start</button>') +
+    '<button class="btn" data-act="subs">Subs</button>' +
+    '<button class="btn sm" data-act="setClock"' + (run ? ' disabled' : '') + '>Set clock</button>' +
+    '<div class="court">' + (on.length ? 'On the court: <b>' + on.map(p => esc(p.number !== '' ? '#' + p.number : p.name.split(' ')[0])).join(' ') + '</b>' +
+      (on.length !== 5 ? ' <span>(' + on.length + ' of 5)</span>' : '') : 'Tap <b>Subs</b> to pick who starts, then <b>Start</b> when play begins.') + '</div>' +
+    '</div></div>';
+}
+function subsForm() {
+  const t = S.t;
+  const ps = gamePlayers().filter(p => p.active || played(t.box[p.id]) || t.clock.lineup.indexOf(p.id) >= 0);
+  const on = t.clock.lineup;
+  openModal('<form data-form="subs"><h2>Who\'s on the court?</h2><p class="muted small">Check the five on the court right now. Make subs when they check in (the clock is usually stopped).</p>' +
+    '<div class="player-checks">' + ps.map(p => '<label class="check"><input type="checkbox" name="oc" value="' + esc(p.id) + '"' + (on.indexOf(p.id) >= 0 ? ' checked' : '') + '> ' + esc(playerLabel(p)) + '</label>').join('') + '</div>' +
+    '<p class="small" style="font-weight:700" id="ocCount">' + on.length + ' of 5 checked</p>' +
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Save</button></div></form>');
+}
+function setClockForm() {
+  const t = S.t;
+  openModal('<form data-form="setClock"><h2>Set the clock</h2><p class="muted small">Type the time left in ' + periodLabel(t.period) + ' from the scoreboard (minutes:seconds). Quarters are ' + (t.quarterMinutes || 8) + ' minutes; you can change that on the Roster tab.</p>' +
+    '<label class="field">Time left<input name="left" class="clock-input" inputmode="numeric" value="' + fmtClock(clockLeft()) + '" autofocus></label>' +
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Save</button></div></form>');
+}
+// Keep the clock ticking on screen, and pause it when the quarter runs out.
+setInterval(() => {
+  const t = S.t;
+  if (S.view !== 'game' || !t || !t.clock || !t.canClock || t.mode || !t.clock.anchor) return;
+  if (clockLeft() <= 0) {
+    const c = t.clock;
+    stopClock((t.period in c.periodStart ? c.periodStart[t.period] : c.elapsed) + periodLength(t.period));
+    toast('End of ' + periodLabel(t.period) + '. Clock paused.');
+    if (!modalState) render();
+    return;
+  }
+  document.querySelectorAll('[data-clock]').forEach(el => { el.textContent = fmtClock(clockLeft()); });
+}, 500);
 
 // NFHS: team fouls reset every quarter; the 5th team foul in a quarter puts the other team in the bonus.
 const BONUS_FOULS = 5;
@@ -781,10 +904,12 @@ function viewTracker() {
   if (sel) hint = '<b>' + esc(anyLabel(sel.id)) + '</b>: tap a stat';
   else if (armed) hint = '<b>' + esc(armed.label) + '</b>: tap the player';
   else hint = opp ? 'Tracking <b>' + esc(t.game.opponent) + '</b>: tap a number, then a stat' : 'Tap a player, then a stat';
+  // Green underline = on the court (from whoever runs the clock).
+  const court = (t.canClock && t.clock ? t.clock.lineup : (t.flow && t.flow.lineup)) || [];
   const tiles = ps.map(p => {
     const l = line(t.box[p.id]);
     const fc = l.PF >= 5 ? 'foul5' : l.PF >= 4 ? 'foul4' : '';
-    return '<button class="pbtn ' + (p.id === t.sel ? 'sel' : '') + '" data-act="pickPlayer" data-id="' + esc(p.id) + '">' +
+    return '<button class="pbtn ' + (p.id === t.sel ? 'sel' : '') + (court.indexOf(p.id) >= 0 ? ' oncourt' : '') + '" data-act="pickPlayer" data-id="' + esc(p.id) + '">' +
       '<div class="n">' + (p.number !== '' ? '#' + esc(p.number) : (p.id === 'opp:team' ? 'TEAM' : '–')) + '</div>' +
       '<div class="nm">' + esc(p.id === 'opp:team' ? 'Unknown #' : p.name) + '</div>' +
       '<div class="ln">' + l.pts + ' pts · <span class="' + fc + '">' + l.PF + ' F</span></div></button>';
@@ -819,38 +944,92 @@ function viewTracker() {
 function shortTeam() { return S.teamName.length <= 12 ? S.teamName : (S.teamName.split(/\s+/)[0] || 'Us').slice(0, 14); }
 function g_opp() { return S.t ? S.t.game.opponent : 'Opponent'; }
 
-function boxTable(players, box, clickable, opp) {
-  const rows = players.filter(p => played(box[p.id]));
+// flow: minutes and +/- for these players (our team only), or null when the clock wasn't used.
+function boxTable(players, box, clickable, opp, flow) {
+  const wf = !opp && hasFlow(flow);
+  // Anyone who got minutes played, even without a stat.
+  const rows = players.filter(p => played(box[p.id]) || (wf && (n0(flow.min[p.id]) > 0 || n0(flow.pm[p.id]) !== 0)));
   if (!opp) rows.sort(byNumber);
   let tot = {};
   const tr = rows.map(p => {
     const s = box[p.id] || {};
     tot = addLine(tot, s);
-    const l = line(s);
+    const l = flowLine(line(s), wf ? flow : null, p.id);
     return '<tr class="' + (clickable ? 'click' : '') + '" ' + (clickable ? 'data-act="editLine" data-id="' + esc(p.id) + '"' : '') + '>' +
       '<td><span class="pnum">' + (p.number !== '' ? '#' + esc(p.number) : '') + '</span><span class="pname">' + esc(p.id === 'opp:team' ? 'Team / unknown #' : p.name) + '</span></td>' +
-      boxCells(l) + '</tr>';
+      boxCells(l, wf) + '</tr>';
   }).join('');
   const lt = line(tot);
-  return '<div class="table-wrap"><table><thead><tr><th>Player</th>' + boxHead() + '</tr></thead><tbody>' +
+  return '<div class="table-wrap"><table><thead><tr><th>Player</th>' + boxHead(wf) + '</tr></thead><tbody>' +
     (tr || '<tr><td colspan="12" class="muted" style="text-align:center;position:static">No stats yet</td></tr>') +
-    (rows.length ? '<tr class="total"><td>Team</td>' + boxCells(lt) + '</tr>' : '') +
+    (rows.length ? '<tr class="total"><td>Team</td>' + boxCells(lt, wf) + '</tr>' : '') +
     '</tbody></table></div>';
 }
 // Box score columns, each tied to a stat group so people only see what the coach allows.
 const BOX_COLS = [
+  ['MIN', 'min', l => fmtMin(l.min)],
   ['PTS', 'scoring', l => '<b>' + l.pts + '</b>'], ['FG', 'scoring', l => l.fgm + '-' + l.fga], ['FG%', 'scoring', l => pct(l.fgm, l.fga)],
   ['3P', 'scoring', l => l.FG3M + '-' + l.FG3A], ['FT', 'scoring', l => l.FTM + '-' + l.FTA],
   ['REB', 'reb', l => l.REB], ['OR', 'reb', l => l.OREB], ['DR', 'reb', l => l.DREB], ['AST', 'ast', l => l.AST], ['STL', 'stl', l => l.STL], ['BLK', 'blk', l => l.BLK], ['TO', 'to', l => l.TO], ['PF', 'pf', l => l.PF],
+  ['+/-', 'min', l => fmtPM(l.pm)],
 ];
-const boxCols = () => BOX_COLS.filter(c => canSeeGroup(c[1]));
-function boxHead() { return boxCols().map(c => '<th>' + c[0] + '</th>').join(''); }
-function boxCells(l) { return boxCols().map(c => '<td>' + c[2](l) + '</td>').join(''); }
+// MIN and +/- only show when the game clock was used (withFlow).
+const boxCols = withFlow => BOX_COLS.filter(c => canSeeGroup(c[1]) && (c[1] !== 'min' || withFlow));
+function boxHead(withFlow) { return boxCols(withFlow).map(c => '<th>' + c[0] + '</th>').join(''); }
+function boxCells(l, withFlow) { return boxCols(withFlow).map(c => '<td>' + c[2](l) + '</td>').join(''); }
+
+// ---------------------------------------------------------------------------
+// Minutes and plus/minus. The server works them out from the game clock and subs:
+// flow = { min: { playerId: seconds }, pm: { playerId: +/- } } for one game.
+// ---------------------------------------------------------------------------
+const hasFlow = f => !!f && Object.keys(f.min || {}).length + Object.keys(f.pm || {}).length > 0;
+// Adds minutes (l.min) and plus/minus (l.pm) to a stat line. null = the clock wasn't used that game.
+function flowLine(l, f, id) {
+  l.min = hasFlow(f) ? n0(f.min[id]) / 60 : null;
+  l.pm = hasFlow(f) ? n0(f.pm[id]) : null;
+  return l;
+}
+function fmtMin(v) { return v === undefined ? '' : v == null ? '–' : String(Math.round(v)); }
+function fmtPM(v) { return v === undefined ? '' : v == null ? '–' : v > 0 ? '+' + v : String(v); }
+function fmtClock(secs) {
+  secs = Math.max(0, Math.round(secs));
+  return Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
+}
+// The two extra trend charts, for games where the clock was used.
+function flowTrends(games) {
+  if (!canSeeGroup('min') || !games.some(x => x.l.min != null)) return [];
+  return [{ k: 'min', l: 'MIN', g: 'min', v: l => (l.min == null ? null : Math.round(l.min)) }, { k: 'pm', l: '+/-', g: 'min', v: l => l.pm, signed: true }];
+}
+// Extra columns on the printable box score.
+function flowCols(t) {
+  if (!hasFlow(t.flow) || !canSeeGroup('min')) return [];
+  return [['MIN', l => (l.id === '_total' ? '' : fmtMin(n0(t.flow.min[l.id]) / 60))], ['+/-', l => (l.id === '_total' ? '' : fmtPM(n0(t.flow.pm[l.id])))]];
+}
+// The box score's minutes and +/- for the chosen filter: whole game, one quarter, or all overtime.
+function filteredFlow() {
+  const t = S.t, f = t.boxFilter || 'all';
+  if (!hasFlow(t.flow)) return null;
+  if (f === 'all') return t.flow;
+  const out = { min: {}, pm: {} };
+  Object.keys(t.flow.periods || {}).map(Number).filter(n => (f === 'ot' ? n >= 5 : n === Number(f))).forEach(n => {
+    ['min', 'pm'].forEach(k => { Object.keys(t.flow.periods[n][k] || {}).forEach(id => { out[k][id] = n0(out[k][id]) + t.flow.periods[n][k][id]; }); });
+  });
+  return out;
+}
 // Stat tiles (PPG, RPG…) filtered the same way.
 function statTiles(l, gp, which) {
   const all = { PPG: ['scoring', () => avg(l.pts, gp)], RPG: ['reb', () => avg(l.REB, gp)], APG: ['ast', () => avg(l.AST, gp)], SPG: ['stl', () => avg(l.STL, gp)],
     'FG%': ['scoring', () => pct(l.fgm, l.fga)], '3P%': ['scoring', () => pct(l.FG3M, l.FG3A)], 'FT%': ['scoring', () => pct(l.FTM, l.FTA)], 'TO/G': ['to', () => avg(l.TO, gp)] };
   return which.filter(k => canSeeGroup(all[k][0])).map(k => '<div class="tile"><div class="label">' + k + '</div><div class="value">' + all[k][1]() + '</div></div>').join('');
+}
+// Minutes and +/- per game, over the games where the clock was kept.
+function flowTiles(flows, id) {
+  const kept = flows.filter(hasFlow);
+  if (!kept.length || !canSeeGroup('min')) return '';
+  const mins = kept.reduce((a, f) => a + n0(f.min[id]), 0) / 60, pm = kept.reduce((a, f) => a + n0(f.pm[id]), 0);
+  const sub = '<div class="sub">' + kept.length + ' game' + (kept.length === 1 ? '' : 's') + ' with the clock</div>';
+  return '<div class="tile"><div class="label">MIN/G</div><div class="value">' + avg(mins, kept.length) + '</div>' + sub + '</div>' +
+    '<div class="tile"><div class="label">+/-</div><div class="value">' + fmtPM(pm) + '</div><div class="sub">' + (pm / kept.length > 0 ? '+' : '') + avg(pm, kept.length) + ' per game</div></div>';
 }
 
 function viewPersonalBox() {
@@ -914,7 +1093,8 @@ function viewGameBox(coach) {
     liveNote() + foulAlerts() + boxFilterBar() +
     (whole ? (t.canFix ? '<p class="muted small" style="margin:0 0 8px">Tap a player to fix their numbers.</p>' : '')
       : '<p class="muted small" style="margin:0 0 8px">Showing ' + (t.boxFilter === 'ot' ? 'overtime' : periodLabel(Number(t.boxFilter))) + ' only (' + shortTeam() + ' ' + teamPts(shown) + ', ' + esc(g.opponent) + ' ' + oppPts(shown) + '). Tap Game to fix numbers.</p>') +
-    boxTable(t.players, shown, t.canFix && whole) +
+    boxTable(t.players, shown, t.canFix && whole, false, filteredFlow()) +
+    (hasFlow(t.flow) && canSeeGroup('min') ? '<p class="muted small" style="margin:6px 0 0">MIN comes from the game clock, so it\'s only as exact as its starts and stops. +/- = our points minus theirs while the player was on the court.</p>' : '') +
     (unplayed.length ? '<div class="row wrap-row" style="margin-top:12px"><span class="muted small">Add a player:</span>' + unplayed.map(p => '<button class="btn sm" data-act="editLine" data-id="' + esc(p.id) + '">' + esc(playerLabel(p)) + '</button>').join('') + '</div>' : '') +
     '</div>' + quarterCard() + oppCard + parentBooksCard() + (statusHtml ? '<div class="card">' + statusHtml + '</div>' : '') +
     (S.me.role === 'coach' ? '<button class="btn big" style="margin-top:12px" data-act="printBox">🖨 Printable box score</button>' : '');
@@ -965,7 +1145,7 @@ function printBox() {
     printTable(S.teamName, gamePlayers(), t.box, extra) +
     (hasOppStats(t.box) ? printTable(g.opponent, opps, t.box) : '') +
     (n0(t.box[TEAM] && t.box[TEAM].OPP) ? '<p class="meta">' + esc(g.opponent) + ' points not credited to a player: ' + n0(t.box[TEAM].OPP) + '</p>' : '') +
-    '<p class="meta foot">OR/DR = offensive/defensive rebounds. Printed ' + esc(new Date().toLocaleString()) + '.</p></div>';
+    '<p class="meta foot">OR/DR = offensive/defensive rebounds.' + (extra.length ? ' MIN = minutes from the game clock. +/- = points scored minus points allowed while on the court.' : '') + ' Printed ' + esc(new Date().toLocaleString()) + '.</p></div>';
   document.body.classList.add('show-print');
   window.scrollTo(0, 0);
 }
@@ -1024,13 +1204,17 @@ function gamesWithStats() {
 function seasonTable() {
   const d = S.data;
   const games = gamesWithStats();
+  const flows = d.flows || {};
   return d.players.map(p => {
-    let tot = {}, gp = 0;
+    let tot = {}, gp = 0, min = 0, pm = 0, mgp = 0;
     games.forEach(g => {
       const s = d.boxes[g.id][p.id];
-      if (played(s)) { gp++; tot = addLine(tot, s); }
+      if (!played(s)) return;
+      gp++; tot = addLine(tot, s);
+      // Minutes and +/- per game count only games where the clock was kept.
+      if (hasFlow(flows[g.id])) { mgp++; min += n0(flows[g.id].min[p.id]) / 60; pm += n0(flows[g.id].pm[p.id]); }
     });
-    return { p: p, gp: gp, l: line(tot) };
+    return { p: p, gp: gp, l: line(tot), min: min, pm: pm, mgp: mgp };
   }).filter(r => r.gp || r.p.active);
 }
 
@@ -1048,6 +1232,7 @@ function teamRecord() {
 
 const SEASON_COLS = [
   { k: 'gp', l: 'GP', v: r => r.gp, raw: true },
+  { k: 'min', g: 'min', l: 'MIN', v: r => r.min, per: r => r.mgp, flow: true },
   { k: 'pts', g: 'scoring', l: 'PTS', v: r => r.l.pts },
   { k: 'reb', g: 'reb', l: 'REB', v: r => r.l.REB },
   { k: 'oreb', g: 'reb', l: 'OREB', v: r => r.l.OREB },
@@ -1063,14 +1248,23 @@ const SEASON_COLS = [
   { k: 'ft', g: 'scoring', l: 'FT', v: r => r.l.FTM, pair: r => [r.l.FTM, r.l.FTA] },
   { k: 'ftp', g: 'scoring', l: 'FT%', v: r => (r.l.FTA ? r.l.FTM / r.l.FTA : -1), pct: r => pct(r.l.FTM, r.l.FTA) },
   { k: 'pf', g: 'pf', l: 'PF', v: r => r.l.PF },
+  { k: 'pm', g: 'min', l: '+/-', v: r => r.pm, per: r => r.mgp, flow: true, signed: true },
 ];
 function colText(c, r, perGame) {
   if (c.pct) return c.pct(r);
+  if (c.per) {
+    // Minutes and +/-: averaged over the games where the clock was kept.
+    const n = c.per(r), v = perGame ? (n ? c.v(r) / n : null) : (n ? Math.round(c.v(r)) : null);
+    if (v == null) return '–';
+    const txt = perGame ? v.toFixed(1) : String(v);
+    return c.signed && v > 0 ? '+' + txt : txt;
+  }
   if (c.raw) return String(c.v(r));
   if (c.pair) { const [m, a] = c.pair(r); return perGame ? avg(m, r.gp) + '-' + avg(a, r.gp) : m + '-' + a; }
   return perGame ? avg(c.v(r), r.gp) : String(c.v(r));
 }
 function sortVal(c, r, perGame) {
+  if (c.per) return c.per(r) ? (perGame ? c.v(r) / c.per(r) : c.v(r)) : -1e9;
   if (c.pct || c.raw) return c.v(r);
   return perGame ? (r.gp ? c.v(r) / r.gp : -1) : c.v(r);
 }
@@ -1084,7 +1278,8 @@ function viewSeason() {
   const rec = teamRecord();
   const rows = seasonTable();
   const perGame = S.seasonMode === 'avg';
-  const cols = SEASON_COLS.filter(c => !c.g || canSeeGroup(c.g));
+  const anyFlow = Object.keys(d.flows || {}).some(id => hasFlow(d.flows[id]));
+  const cols = SEASON_COLS.filter(c => (!c.g || canSeeGroup(c.g)) && (!c.flow || anyFlow));
   const leaders = [['PTS', 'scoring', r => r.l.pts], ['REB', 'reb', r => r.l.REB], ['AST', 'ast', r => r.l.AST], ['STL', 'stl', r => r.l.STL]].filter(x => canSeeGroup(x[1])).map(([lbl, , f]) => {
     const best = rows.filter(r => r.gp).sort((a, b) => f(b) / b.gp - f(a) / a.gp)[0];
     return '<div class="tile"><div class="label">' + lbl + ' leader</div><div class="value">' + (best ? avg(f(best), best.gp) : '–') + '</div><div class="sub">' + (best ? esc(playerLabel(best.p)) : 'No games yet') + '</div></div>';
@@ -1101,7 +1296,8 @@ function viewSeason() {
     leaders + '</div>' +
     '<div class="card"><div class="row wrap-row" style="margin-bottom:8px"><h2 style="margin:0;flex:1">Player stats</h2>' +
     '<div class="seg"><button class="' + (perGame ? 'on' : '') + '" data-act="seasonMode" data-m="avg">Per game</button><button class="' + (!perGame ? 'on' : '') + '" data-act="seasonMode" data-m="tot">Totals</button></div></div>' +
-    '<p class="muted small" style="margin:0 0 6px">' + nGames + ' game' + (nGames === 1 ? '' : 's') + ' with stats. Tap a column to sort, or a player to see their game log.</p>' +
+    '<p class="muted small" style="margin:0 0 6px">' + nGames + ' game' + (nGames === 1 ? '' : 's') + ' with stats. Tap a column to sort, or a player to see their game log.' +
+    (cols.some(c => c.flow) ? ' MIN and +/- count only games where the clock was kept.' : '') + '</p>' +
     '<div class="table-wrap"><table><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div></div>' +
     oppComparison() +
     (S.me.role !== 'coach' ? '' : '<div class="card"><h2>Google Sheet</h2><p class="muted small" style="margin-top:0">Copy these numbers into <b>Season Stats</b> and <b>Game Log</b> tabs in your spreadsheet to sort, chart, or print.</p>' +
@@ -1149,18 +1345,19 @@ function viewPlayer() {
   let tot = {};
   games.forEach(g => { tot = addLine(tot, d.boxes[g.id][p.id]); });
   const l = line(tot), gp = games.length;
-  const tiles = statTiles(l, gp, ['PPG', 'RPG', 'APG', 'SPG', 'FG%', '3P%', 'FT%', 'TO/G']);
-  const rows = games.slice().reverse().map(g => {
-    const gl = line(d.boxes[g.id][p.id]);
-    return '<tr class="click" data-act="openBox" data-id="' + esc(g.id) + '"><td>' + esc(fmtDate(g.date)) + ' <span class="muted">' + esc(gameTitle(g)) + '</span></td>' + boxCells(gl) + '</tr>';
-  }).join('');
+  const flows = games.map(g => (d.flows || {})[g.id]);
+  const wf = flows.some(hasFlow);
+  const tiles = statTiles(l, gp, ['PPG', 'RPG', 'APG', 'SPG', 'FG%', '3P%', 'FT%', 'TO/G']) + (wf ? flowTiles(flows, p.id) : '');
+  const gameLine = (g, i) => flowLine(line(d.boxes[g.id][p.id]), flows[i], p.id);
+  const rows = games.map((g, i) => '<tr class="click" data-act="openBox" data-id="' + esc(g.id) + '"><td>' + esc(fmtDate(g.date)) + ' <span class="muted">' + esc(gameTitle(g)) + '</span></td>' + boxCells(gameLine(g, i), wf) + '</tr>').reverse().join('');
+  if (wf) { l.min = flows.reduce((a, f) => a + (hasFlow(f) ? n0(f.min[p.id]) : 0), 0) / 60; l.pm = flows.reduce((a, f) => a + (hasFlow(f) ? n0(f.pm[p.id]) : 0), 0); }
   return topBar(playerLabel(p), '<button class="link" data-act="back">‹ Back</button>', '') +
     '<div class="wrap"><div class="tiles">' + tiles + '</div>' +
-    trendChart(games.map(g => ({ game: g, l: line(d.boxes[g.id][p.id]) }))) +
+    trendChart(games.map((g, i) => ({ game: g, l: gameLine(g, i) }))) +
     '<div class="card"><h2>Game log</h2><p class="muted small" style="margin-top:0">' + gp + ' game' + (gp === 1 ? '' : 's') + ' played · ' + l.pts + ' points total</p>' +
-    '<div class="table-wrap"><table><thead><tr><th>Game</th>' + boxHead() + '</tr></thead><tbody>' +
+    '<div class="table-wrap"><table><thead><tr><th>Game</th>' + boxHead(wf) + '</tr></thead><tbody>' +
     (rows || '<tr><td colspan="12" class="muted">No games yet</td></tr>') +
-    (gp ? '<tr class="total"><td>Season</td>' + boxCells(l) + '</tr>' : '') +
+    (gp ? '<tr class="total"><td>Season</td>' + boxCells(l, wf) + '</tr>' : '') +
     '</tbody></table></div></div></div>';
 }
 
@@ -1206,6 +1403,7 @@ function viewRoster() {
     (S.me.role !== 'coach' ? '' : '<div class="section-title">Team settings</div><div class="card"><form data-form="settings">' +
     '<label class="field">Team name<input name="teamName" value="' + esc(d.settings.teamName) + '" maxlength="60"></label>' +
     '<label class="field">Season<input name="season" value="' + esc(d.settings.season) + '" maxlength="20"></label>' +
+    '<label class="field">Quarter length (minutes) <span class="muted small">for the game clock; overtime is half</span><input name="quarterMinutes" type="number" min="1" max="20" inputmode="numeric" value="' + esc(d.settings.quarterMinutes || 8) + '"></label>' +
     '<div class="err"></div><button class="btn primary" type="submit">Save</button>' +
     '<p class="muted small">To change your coach PIN, edit <b>Coach PIN</b> on the Settings tab of the spreadsheet.</p></form></div>');
 }
@@ -1215,9 +1413,11 @@ const GROUPS = [
   ['scoring', 'Points & shooting', '2PT, 3PT, free throws'],
   ['reb', 'Rebounds'], ['ast', 'Assists'], ['stl', 'Steals'], ['blk', 'Blocks'], ['to', 'Turnovers'], ['pf', 'Fouls'],
   ['opp', "Opponent's stats & score"],
+  ['min', 'Minutes & +/-', 'When the clock is kept'],
 ];
-const VIEW_GROUP_KEYS = ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf'];
-const TRACK_GROUP_KEYS = VIEW_GROUP_KEYS.concat(['opp']);
+const STAT_GROUP_KEYS = ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf'];
+const VIEW_GROUP_KEYS = STAT_GROUP_KEYS.concat(['min']);
+const TRACK_GROUP_KEYS = STAT_GROUP_KEYS.concat(['opp']);
 const groupName = k => (GROUPS.find(g => g[0] === k) || [k, k])[1];
 function groupListText(list, all) {
   if (!list || list.length === all.length) return 'all stats';
@@ -1230,7 +1430,7 @@ function permSummary(p) {
   if (perms.manage) return ['Assistant coach: edits roster & schedule, tracks any game, sees all stats.'];
   const players = (p.players || []).map(id => S.data.players.find(x => x.id === id)).filter(Boolean).map(x => x.name.split(' ')[0]);
   const lines = ['During games: ' + (perms.trackAny ? 'any game' : 'games you assign') + ' · ' + groupListText(perms.trackGroups, TRACK_GROUP_KEYS) +
-    (perms.fixStats ? ' · can fix numbers' : '')];
+    (perms.fixStats ? ' · can fix numbers' : '') + (perms.clock ? ' · runs the clock & subs' : '')];
   if (players.length) lines.push('Own record of: ' + players.join(', '));
   const what = groupListText(perms.viewGroups, VIEW_GROUP_KEYS);
   lines.push('After games: ' + (perms.viewStats ? 'sees whole team (' + what + ')' : perms.viewOwn && players.length ? 'sees ' + players.join(' & ') + ' only (' + what + ')' : 'sees nothing'));
@@ -1329,6 +1529,7 @@ function parentForm(p) {
     '<p class="muted small" style="margin:0">To split a game, assign several parents and give each different stats.</p>' +
     groupChecks('tg', TRACK_GROUP_KEYS, tg) +
     '<label class="check choice"><input type="checkbox" name="fixStats"' + (perms.fixStats ? ' checked' : '') + '><span>Can fix numbers in the box score<span class="muted small">Using − / +. Undoing their own taps always works.</span></span></label>' +
+    '<label class="check choice"><input type="checkbox" name="clock"' + (perms.clock ? ' checked' : '') + '><span>Minutes &amp; +/-: runs the game clock and subs<span class="muted small">They get Start / Pause and Subs buttons. Give this to <b>one</b> stat keeper per game.</span></span></label>' +
     '<div class="step-label">Their own player(s) (optional)</div>' +
     '<p class="muted small" style="margin:0">They can keep a separate record of these players at any game. It\'s shown to you for comparison and <b>never changes the official stats</b>.</p>' +
     '<div class="player-checks">' + roster.map(x => '<label class="check"><input type="checkbox" name="pl" value="' + esc(x.id) + '" ' + (mine.indexOf(x.id) >= 0 ? 'checked' : '') + '> ' + esc(playerLabel(x)) + '</label>').join('') + '</div>' +
@@ -1557,7 +1758,7 @@ function mkEv(playerId, stat, delta, period) {
 const localKey = (gameId, mode) => gameId + (mode === 'personal' ? '_p' : '');
 function saveGameLocal() {
   const t = S.t, k = localKey(t.game.id, t.mode);
-  store.set('gcs_box_' + k, { game: t.game, players: t.players, box: t.box, periods: t.periods, periodBoxes: t.periodBoxes, canTrack: t.canTrack, canFix: t.canFix, mode: t.mode });
+  store.set('gcs_box_' + k, { game: t.game, players: t.players, box: t.box, periods: t.periods, periodBoxes: t.periodBoxes, canTrack: t.canTrack, canFix: t.canFix, mode: t.mode, flow: t.flow, canClock: t.canClock, quarterMinutes: t.quarterMinutes });
   store.set('gcs_period_' + k, t.period);
   store.set('gcs_plays_' + k, t.plays.slice(0, 400));
 }
@@ -1593,7 +1794,8 @@ async function openGame(gameId, tab, mode) {
   let t = null;
   try {
     const r = await call('game', { gameId: gameId, mode: mode });
-    t = { game: r.game, players: r.players, box: r.box || {}, periods: r.periods || {}, periodBoxes: r.periodBoxes || {}, currentPeriod: r.currentPeriod || 0, canTrack: r.canTrack, canFix: r.canFix, mode: mode, parentBooks: r.parentBooks || [] };
+    t = { game: r.game, players: r.players, box: r.box || {}, periods: r.periods || {}, periodBoxes: r.periodBoxes || {}, currentPeriod: r.currentPeriod || 0, canTrack: r.canTrack, canFix: r.canFix, mode: mode, parentBooks: r.parentBooks || [],
+      flow: r.flow || null, canClock: !!r.canClock, quarterMinutes: r.quarterMinutes || 8 };
     Queue.items.filter(e => e.gameId === gameId && (e.mode || '') === mode).forEach(e => applyAll(t, e));
   } catch (err) {
     const cached = store.get('gcs_box_' + localKey(gameId, mode), null);
@@ -1609,9 +1811,10 @@ async function openGame(gameId, tab, mode) {
   }
   Queue.paused = false; Queue.flush();
   const savedPeriod = store.get('gcs_period_' + localKey(gameId, mode), 0);
+  const clock = t.canClock && !mode ? loadClock(t) : null;
   S.t = Object.assign(t, {
-    tab: t.canTrack ? (tab || 'track') : 'box', side: 'us', sel: null, armed: null,
-    period: Math.max(savedPeriod || 0, t.currentPeriod || 0) || 1,
+    tab: t.canTrack ? (tab || 'track') : 'box', side: 'us', sel: null, armed: null, clock: clock,
+    period: Math.max(savedPeriod || 0, t.currentPeriod || 0, (t.flow && t.flow.clock && t.flow.clock.period) || 0) || 1,
     periods: t.periods || {},
     plays: store.get('gcs_plays_' + localKey(gameId, mode), []), backTo: prevView,
   });
@@ -1633,9 +1836,11 @@ async function refreshGameFromServer(quiet) {
     t.lastSync = Date.now();
     if (S.t !== t || Queue.count(t.game.id)) return;
     // Only redraw when something changed, so the screen doesn't jump while someone is tapping.
-    const before = JSON.stringify([t.box, t.periods, t.game.status, t.flow]);
-    if (quiet && before === JSON.stringify([r.box || {}, t.mode ? t.periods : (r.periods || {}), r.game.status, r.flow])) return;
+    const fl = f => (f ? [f.min, f.pm, f.lineup] : null); // not the clock itself, which changes every second
+    const before = JSON.stringify([t.box, t.periods, t.game.status, fl(t.flow)]);
+    if (quiet && before === JSON.stringify([r.box || {}, t.mode ? t.periods : (r.periods || {}), r.game.status, fl(r.flow)])) return;
     t.box = r.box || {}; t.game = r.game; t.players = r.players; t.canTrack = r.canTrack; t.canFix = r.canFix; t.parentBooks = r.parentBooks || [];
+    t.flow = r.flow || null; t.quarterMinutes = r.quarterMinutes || t.quarterMinutes;
     if (!t.mode) { t.periods = r.periods || {}; t.periodBoxes = r.periodBoxes || {}; if ((r.currentPeriod || 0) > t.period) t.period = r.currentPeriod; }
     saveGameLocal();
     if (!modalState) render();
@@ -1718,24 +1923,27 @@ async function coachSave(action, data) {
 function buildReport() {
   const d = S.data;
   const rows = seasonTable().filter(r => r.gp).sort((a, b) => byNumber(a.p, b.p));
-  const season = [['#', 'Player', 'GP', 'PTS', 'PPG', 'REB', 'RPG', 'OREB', 'DREB', 'AST', 'APG', 'STL', 'SPG', 'BLK', 'BPG', 'TO', 'TOPG', 'FGM', 'FGA', 'FG%', '3PM', '3PA', '3P%', 'FTM', 'FTA', 'FT%', 'PF']];
+  // MIN and Plus/Minus are blank where the game clock wasn't kept. (A header can't start with + in Sheets.)
+  const season = [['#', 'Player', 'GP', 'PTS', 'PPG', 'REB', 'RPG', 'OREB', 'DREB', 'AST', 'APG', 'STL', 'SPG', 'BLK', 'BPG', 'TO', 'TOPG', 'FGM', 'FGA', 'FG%', '3PM', '3PA', '3P%', 'FTM', 'FTA', 'FT%', 'PF', 'MIN', 'MPG', 'Plus/Minus']];
   rows.forEach(r => {
     const l = r.l, g = r.gp, a = v => Math.round(10 * v / g) / 10;
     season.push([r.p.number, r.p.name, g, l.pts, a(l.pts), l.REB, a(l.REB), l.OREB, l.DREB, l.AST, a(l.AST), l.STL, a(l.STL), l.BLK, a(l.BLK), l.TO, a(l.TO),
-      l.fgm, l.fga, pctNum(l.fgm, l.fga), l.FG3M, l.FG3A, pctNum(l.FG3M, l.FG3A), l.FTM, l.FTA, pctNum(l.FTM, l.FTA), l.PF]);
+      l.fgm, l.fga, pctNum(l.fgm, l.fga), l.FG3M, l.FG3A, pctNum(l.FG3M, l.FG3A), l.FTM, l.FTA, pctNum(l.FTM, l.FTA), l.PF,
+      r.mgp ? Math.round(r.min) : '', r.mgp ? Math.round(10 * r.min / r.mgp) / 10 : '', r.mgp ? r.pm : '']);
   });
-  const log = [['Date', 'Opponent', 'Location', 'Status', 'Team', 'Opp', 'Side', '#', 'Player', 'PTS', 'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA', 'REB', 'OREB', 'DREB', 'AST', 'STL', 'BLK', 'TO', 'PF']];
+  const log = [['Date', 'Opponent', 'Location', 'Status', 'Team', 'Opp', 'Side', '#', 'Player', 'PTS', 'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA', 'REB', 'OREB', 'DREB', 'AST', 'STL', 'BLK', 'TO', 'PF', 'MIN', 'Plus/Minus']];
   gamesWithStats().forEach(g => {
-    const box = d.boxes[g.id];
+    const box = d.boxes[g.id], f = (d.flows || {})[g.id];
     d.players.slice().sort(byNumber).forEach(p => {
       if (!played(box[p.id])) return;
-      const l = line(box[p.id]);
-      log.push([g.date, g.opponent, g.location, g.status, teamPts(box), oppPts(box), d.settings.teamName, p.number, p.name, l.pts, l.fgm, l.fga, l.FG3M, l.FG3A, l.FTM, l.FTA, l.REB, l.OREB, l.DREB, l.AST, l.STL, l.BLK, l.TO, l.PF]);
+      const l = flowLine(line(box[p.id]), f, p.id);
+      log.push([g.date, g.opponent, g.location, g.status, teamPts(box), oppPts(box), d.settings.teamName, p.number, p.name, l.pts, l.fgm, l.fga, l.FG3M, l.FG3A, l.FTM, l.FTA, l.REB, l.OREB, l.DREB, l.AST, l.STL, l.BLK, l.TO, l.PF,
+        l.min == null ? '' : Math.round(l.min), l.pm == null ? '' : l.pm]);
     });
     oppPlayerList(g.oppRoster, box).forEach(p => {
       if (!hasAny(box[p.id])) return;
       const l = line(box[p.id]);
-      log.push([g.date, g.opponent, g.location, g.status, teamPts(box), oppPts(box), 'Opponent', p.number, p.name || (p.id === 'opp:team' ? 'Team' : ''), l.pts, l.fgm, l.fga, l.FG3M, l.FG3A, l.FTM, l.FTA, l.REB, l.OREB, l.DREB, l.AST, l.STL, l.BLK, l.TO, l.PF]);
+      log.push([g.date, g.opponent, g.location, g.status, teamPts(box), oppPts(box), 'Opponent', p.number, p.name || (p.id === 'opp:team' ? 'Team' : ''), l.pts, l.fgm, l.fga, l.FG3M, l.FG3A, l.FTM, l.FTA, l.REB, l.OREB, l.DREB, l.AST, l.STL, l.BLK, l.TO, l.PF, '', '']);
     });
   });
   return { 'Season Stats': season, 'Game Log': log };
@@ -1852,7 +2060,8 @@ const ACTS = {
     const p = t.plays.find(x => x.id === el.dataset.id);
     if (!p || p.undone) return;
     // Undo lands in the quarter the play happened in, even if the quarter has changed since.
-    const rev = p.events.map(e => mkEv(e.playerId, e.stat, -e.delta, e.period || null));
+    // It also keeps the play's time, so +/- takes it back from the players who were on the court then.
+    const rev = p.events.map(e => Object.assign(mkEv(e.playerId, e.stat, -e.delta, e.period || null), { time: e.time }));
     rev.forEach(e => applyAll(t, e));
     Queue.push(rev);
     p.undone = true;
@@ -1867,10 +2076,13 @@ const ACTS = {
   period(el) {
     const n = Number(el.dataset.n);
     if (!n || n === S.t.period) return;
+    const clock = S.t.canClock && S.t.clock && !S.t.mode;
+    if (clock) stopClock();
     S.t.period = n;
+    if (clock) emitFlow([]); // marks where the new quarter starts on the clock
     saveGameLocal();
     render();
-    toast('Now tracking ' + periodLabel(n));
+    toast('Now tracking ' + periodLabel(n) + (clock ? '. Tap Start when play begins.' : ''));
   },
   oppRoster() { oppRosterForm(); },
   side(el) { S.t.side = el.dataset.side; S.t.sel = null; render(); },
@@ -1895,6 +2107,10 @@ const ACTS = {
   closePrint() { document.body.classList.remove('show-print'); $('#print-root').innerHTML = ''; },
   editScope(el) { lineEditor(el.dataset.id, Number(el.dataset.n)); },
   allPlays() { playsModal(); },
+  clockStart() { startClock(); render(); },
+  clockStop() { stopClock(); render(); },
+  subs() { subsForm(); },
+  setClock() { if (!S.t.clock.anchor) setClockForm(); },
   async setStatus(el) {
     const status = el.dataset.s, t = S.t;
     try {
@@ -1912,6 +2128,7 @@ const ACTS = {
     if (!confirm(manager
       ? 'End the game and mark it final?\n\nFinal score: ' + score + '\n\nYou can still fix numbers afterwards.'
       : 'Submit final stats for ' + gameTitle(t.game) + '?\n\nFinal score: ' + score + '\n\nYou won\'t be able to change them after this.')) return;
+    if (t.canClock && t.clock && !t.mode) stopClock();
     el.disabled = true; el.textContent = 'Saving all plays…';
     const ok = await Queue.drain(t.game.id, 20000);
     if (!ok) {
@@ -1928,7 +2145,7 @@ const ACTS = {
         toast('Game over. Final: ' + score);
         return;
       }
-      store.del('gcs_box_' + localKey(t.game.id)); store.del('gcs_plays_' + localKey(t.game.id)); store.del('gcs_period_' + localKey(t.game.id));
+      store.del('gcs_box_' + localKey(t.game.id)); store.del('gcs_plays_' + localKey(t.game.id)); store.del('gcs_period_' + localKey(t.game.id)); store.del(clockKey(t.game.id));
       toast('Thanks! Stats sent to the coach.');
       await ACTS.leaveGame();
     } catch (err) {
@@ -2010,6 +2227,7 @@ const FORMS = {
     const perms = {
       trackAny: (f.querySelector('input[name=games]:checked') || {}).value === 'any',
       fixStats: f.elements.fixStats.checked,
+      clock: f.elements.clock.checked,
       viewStats: see === 'team',
       viewOwn: see === 'own',
       manage: f.elements.manage.checked,
@@ -2025,7 +2243,7 @@ const FORMS = {
       });
   },
   settings(f) {
-    return coachSave('saveSettings', { teamName: f.elements.teamName.value, season: f.elements.season.value }).then(ok => ok && toast('Saved'));
+    return coachSave('saveSettings', { teamName: f.elements.teamName.value, season: f.elements.season.value, quarterMinutes: f.elements.quarterMinutes.value }).then(ok => ok && toast('Saved'));
   },
   async oppRoster(f) {
     const t = S.t;
@@ -2036,6 +2254,35 @@ const FORMS = {
       closeModal();
       render();
     } catch (err) { modalErr(err.network ? 'No connection. Try again in a moment, or use TEAM for now.' : err.message); }
+  },
+  subs(f) {
+    const t = S.t;
+    const ids = Array.from(f.querySelectorAll('input[name=oc]:checked')).map(i => i.value);
+    if (ids.length > 5) return modalErr('Only 5 can be on the court. ' + ids.length + ' are checked.');
+    const was = t.clock.lineup.join(',');
+    if (ids.join(',') !== was) {
+      t.clock.lineup = ids;
+      emitFlow([flowRow('lineup', { players: ids })]);
+      // Anyone who checks in played today.
+      const gp = ids.filter(id => n0((t.box[id] || {}).GP) < 1).map(id => mkEv(id, 'GP', 1));
+      if (gp.length) commit('', gp, 'Checked in', true);
+      toast(ids.length === 5 ? 'Lineup saved' : 'Lineup saved (' + ids.length + ' of 5)');
+    }
+    closeModal();
+    render();
+  },
+  setClock(f) {
+    const t = S.t, c = t.clock;
+    const m = /^\s*(\d{1,2})(?:[:.](\d{1,2}))?\s*$/.exec(f.elements.left.value);
+    const left = m ? Number(m[1]) * 60 + Number(m[2] || 0) : NaN;
+    const len = periodLength(t.period);
+    if (!m || left > len || (m[2] && Number(m[2]) > 59)) return modalErr('Type the time left like 5:32 (at most ' + fmtClock(len) + ').');
+    if (c.anchor) return modalErr('Pause the clock first.');
+    if (!(t.period in c.periodStart)) emitFlow([]);
+    c.elapsed = Math.round(c.periodStart[t.period] + len - left);
+    emitFlow([flowRow('set')]);
+    closeModal();
+    render();
   },
   whosHere(f) {
     const t = S.t;
@@ -2075,6 +2322,11 @@ document.addEventListener('keydown', ev => {
   if (/^\d$/.test(ev.key)) ACTS.key({ dataset: { k: ev.key } });
   else if (ev.key === 'Backspace') ACTS.key({ dataset: { k: 'back' } });
   else if (ev.key === 'Enter') login();
+});
+document.addEventListener('change', ev => {
+  if (ev.target.name !== 'oc') return;
+  const n = document.querySelectorAll('input[name=oc]:checked').length, el = $('#ocCount');
+  if (el) { el.textContent = n + ' of 5 checked'; el.style.color = n > 5 ? 'var(--bad)' : ''; }
 });
 window.addEventListener('beforeunload', ev => { if (Queue.count()) { ev.preventDefault(); ev.returnValue = ''; } });
 

@@ -7,7 +7,7 @@ A simple GameChanger-style stat tracker for GCS Boys' Basketball.
 - **Easy to fix mistakes.** Every play has an Undo button, and anyone tracking can tap a player in the box score to adjust any number up or down.
 - **Works with bad gym Wi-Fi.** Each tap is saved on the phone first and sent when there's a connection, so nothing is lost or double counted.
 
-**Stats tracked:** points, 2PT and 3PT field goals (made/attempted), free throws (made/attempted), rebounds, assists, steals, blocks, turnovers, fouls, and games played. **Opponents** can be tracked the same way, either by jersey number or as one team, or you can just keep their score.
+**Stats tracked:** points, 2PT and 3PT field goals (made/attempted), free throws (made/attempted), rebounds, assists, steals, blocks, turnovers, fouls, and games played. **Minutes and plus/minus** too, when one stat keeper runs the game clock and subs. **Opponents** can be tracked the same way, either by jersey number or as one team, or you can just keep their score.
 
 **Analysis:** team record and points for/against, stat leaders, a sortable season table (per-game or totals, with FG%, 3P%, FT%), each player's game-by-game log, full box scores for both teams, an **Us vs. opponents** comparison, and one-tap export to **Season Stats** and **Game Log** tabs in your Google Sheet.
 
@@ -78,6 +78,7 @@ Paste in the new code, then click **Deploy → Manage deployments → ✏️ Edi
 - **Which stats they enter:** points & shooting, rebounds, assists, steals, blocks, turnovers, fouls, and the opponent's stats & score. Their tracker only shows those buttons, and the server refuses anything else.
   To **split a game**, tick several parents under *Who keeps stats?* and give each one different stats (e.g. one does scoring, another rebounds/assists/steals).
 - **Can fix numbers in the box score** (− / +). Undoing their own taps always works.
+- **Minutes & +/-: runs the game clock and subs.** They get **Start / Pause**, **Subs** and **Set clock** buttons. Give this to **one** stat keeper per game (you and assistant coaches always have it).
 - **Their own player(s):** a separate personal record that never changes the official stats.
 
 While a game is going, anyone tracking it sees that game's live numbers.
@@ -86,7 +87,7 @@ While a game is going, anyone tracking it sees that game's live numbers.
 - **Nothing** (the default, recommended): they enter stats, the game closes on their phone, and only you see the results.
 - **Only their own player(s):** official stats for the players ticked in step 1.
 - **The whole team:** season stats, player game logs, and every box score (read only).
-- **Which stats they can see:** e.g. rebounds and assists only. Everything else is hidden, and the server never sends it to them.
+- **Which stats they can see:** e.g. rebounds and assists only. **Minutes & +/-** is one of the choices. Everything else is hidden, and the server never sends it to them.
 
 **Advanced → Assistant coach:** edit roster and schedule, track or fix any game, and see all stats. Never sees PINs, contact info, or the Access screen.
 
@@ -121,9 +122,17 @@ Want a shorter link? Make a free one at [tinyurl.com](https://tinyurl.com) with 
 5. The dot at the top shows **All saved** (green), **Saving…** (yellow), or **Offline · N waiting** (red). Offline taps are kept on the phone and sent automatically once there's a connection.
 6. **Opponent stats (optional):** tap the opponent's name in the toggle above the player tiles. Tap **Opponent numbers** to enter their jerseys (`4, 12 Smith, 23`), then track them exactly like your players. Use the **TEAM** tile for anything you can't attribute to a number. If you only care about their score, ignore all this and use the **+1 / +2 / +3** buttons.
 7. Open **Box score** and tap any player to fix a number with − / +. The opponent has its own box score below yours. Use **Game / Q1–Q4 / OT** at the top of the box score to see one quarter or overtime on its own. When fixing, pick **which quarter** the correction belongs to (it starts on the current quarter).
-8. When the game ends, tap **Game over: submit final stats** at the bottom of the Track screen (the coach sees **End game (mark final)**). The game then closes on the parent's phone.
+8. **Minutes & +/- (the stat keeper running the clock):** a clock bar shows under the quarters.
+   - Tap **Subs** and check the five starters. Tap **Subs** again whenever players check in.
+   - Tap **▶ Start** when play starts and **❚❚ Pause** on every whistle. Minutes are only counted while the clock runs, so they're only as accurate as these starts and stops.
+   - The clock shows time left in the quarter. It pauses by itself at 0:00. Tapping the next quarter (Q2, Q3…) pauses it too.
+   - If it drifts from the scoreboard, pause it, tap **Set clock** and type the time left (e.g. `5:32`).
+   - Players on the court have a green line under their tile. **Plus/minus** is worked out automatically: each basket counts for the five who were on the court when it was entered (undoing a basket takes it back from the same five).
+   - Quarter length is 8 minutes (overtime 4). Change it under **Roster → Team settings**.
+9. When the game ends, tap **Game over: submit final stats** at the bottom of the Track screen (the coach sees **End game (mark final)**). The game then closes on the parent's phone.
 
 ### Reviewing (Coach, and anyone you let see the whole team)
+- **Minutes & +/-:** once the clock has been kept for a game, **MIN** and **+/-** columns appear in that game's box score (also by quarter), the season table, each player's game log and trend chart, the printable box score, and the Google Sheet export. Season averages only count games where the clock was kept.
 - **Season tab:** record, scoring, leaders, and the full player table. Switch between **Per game** and **Totals**, tap a column to sort, and tap a player for their game log. **Us vs. opponents** compares shooting, rebounds, turnovers, etc. per game, using only games where opponent stats were kept.
 - **Player trends:** tap a player (Season tab) to see a bar chart of their points, rebounds, assists, steals, turnovers, fouls, FG% or FT% game by game, with the season average. Parents allowed to see their own player get the same chart.
 - **Live bench view:** open a live game's box score and it updates by itself every few seconds while a parent keeps stats. Alerts show players at 3+ fouls and when either team is in the bonus (5th team foul in a quarter).
@@ -144,11 +153,12 @@ Want a shorter link? Make a free one at [tinyurl.com](https://tinyurl.com) with 
 ## What's in the spreadsheet
 | Tab | What it holds |
 | --- | --- |
-| Settings | Team name, season, coach PIN |
+| Settings | Team name, season, coach PIN, quarter length (for the game clock) |
 | Players | Roster (ID, number, name, active) |
 | Parents | People who can sign in, their PINs, and their access switches (TRUE/FALSE) |
 | Games | Schedule, assigned stat keeper, status, opponent jersey numbers |
-| Events | Every tap (who, what, when, entered by). Opponent players appear as `opp:23` (or `opp:team`). Box scores are totals of these rows, which keeps a full history and makes undo safe. |
+| Events | Every tap (who, what, when, entered by). Opponent players appear as `opp:23` (or `opp:team`). Box scores are totals of these rows, which keeps a full history and makes undo safe. *Fix* marks box-score corrections, which don't count toward plus/minus. |
+| Flow | The game clock and subs: every start, pause, lineup change and new quarter, with the game time it happened. Minutes and plus/minus are worked out from this. |
 | Season Stats / Game Log | Created when you tap *Update stats in Google Sheet* |
 
 Avoid hand-editing the **Events** tab. Fix stats in the app's box score instead. You *can* safely edit names, numbers, and dates on the other tabs.

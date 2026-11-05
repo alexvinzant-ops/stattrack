@@ -21,15 +21,21 @@ const TEAM_DEFAULT = 'My Team';
 const TABLES = {
   Settings: ['Setting', 'Value'],
   Players: ['ID', 'Number', 'Name', 'Active'],
-  Parents: ['ID', 'Name', 'PIN', 'Active', 'Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players', 'Email', 'Phone', 'Invited', 'Track Stats', 'See Stats'],
+  Parents: ['ID', 'Name', 'PIN', 'Active', 'Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players', 'Email', 'Phone', 'Invited', 'Track Stats', 'See Stats', 'Run Clock'],
   // Scorer ID: one or more parent IDs, comma-separated (several parents can split a game's stats).
   Games: ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes', 'Opp Roster'],
   // Book is blank for official stats, or a parent's ID for that parent's own record of their players.
   // Period: 1-4 = quarters, 5 = OT, 6 = 2OT... (blank on plays recorded before quarters were tracked)
-  Events: ['ID', 'Game ID', 'Player ID', 'Stat', 'Delta', 'Time', 'Entered By', 'Book', 'Period'],
+  // Fix: TRUE for a number changed in the box score (− / +), which isn't a play on the court.
+  Events: ['ID', 'Game ID', 'Player ID', 'Stat', 'Delta', 'Time', 'Entered By', 'Book', 'Period', 'Fix'],
+  // The game clock and who is on the court, kept by one stat keeper. Each row is one thing that
+  // happened: Type start / stop (the clock), lineup (Players = the five on the court), period
+  // (a new quarter), or set (the clock was corrected while stopped). Clock = game seconds played
+  // so far when it happened. Minutes and plus/minus are worked out from these rows.
+  Flow: ['ID', 'Game ID', 'Type', 'Clock', 'Period', 'Players', 'Time', 'Entered By'],
 };
 // Columns stored as plain text so Sheets doesn't turn PINs, dates, or jersey "00" into numbers/dates.
-const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3, 9, 11, 12, 13, 14, 15], Games: [2, 5, 8] };
+const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3, 9, 11, 12, 13, 14, 15], Games: [2, 5, 8], Flow: [6, 7] };
 
 // Base counters. Everything else (points, FG, %) is derived.
 // REB = rebounds entered before offensive/defensive were tracked separately.
@@ -47,9 +53,10 @@ const OPP_ID = /^opp:(\d{1,3}|team)$/;
 //   viewStats : read-only season stats, player game logs and every box score
 //   manage    : add/edit players and games, assign stat keepers, mark games final (assistant coach)
 //   viewOwn   : see official stats (season + game log) for the players assigned to them
+//   clock     : run the game clock and subs (minutes and plus/minus) in games they track
 const PERMS = {
   trackAny: ['Track Any', false], fixStats: ['Fix Stats', true], viewStats: ['View Stats', false],
-  manage: ['Manage', false], viewOwn: ['See Own Players', false],
+  manage: ['Manage', false], viewOwn: ['See Own Players', false], clock: ['Run Clock', false],
 };
 // Stat groups the coach can allow per person, for entering stats ("Track Stats") and for seeing
 // them after games ("See Stats"). Blank = all groups, "-" = none. Games played is always allowed.
@@ -58,12 +65,14 @@ const STAT_GROUPS = {
   reb: ['REB', 'OREB', 'DREB'], ast: ['AST'], stl: ['STL'], blk: ['BLK'], to: ['TO'], pf: ['PF'],
 };
 const TRACK_GROUPS = Object.keys(STAT_GROUPS).concat(['opp']); // opp = the opponent's stats and score
-const VIEW_GROUPS = Object.keys(STAT_GROUPS);
+const VIEW_GROUPS = Object.keys(STAT_GROUPS).concat(['min']); // min = minutes and plus/minus
 const ALL_PERMS = {
-  trackAny: true, fixStats: true, viewStats: true, manage: true, viewOwn: true,
+  trackAny: true, fixStats: true, viewStats: true, manage: true, viewOwn: true, clock: true,
   trackGroups: TRACK_GROUPS.slice(), viewGroups: VIEW_GROUPS.slice(),
 };
 const MAX_FAILED_LOGINS = 30; // across everyone, per 15 minutes
+const FLOW_TYPES = ['start', 'stop', 'lineup', 'period', 'set'];
+const ON_COURT = 5;
 
 // ---------------------------------------------------------------------------
 // Entry points
@@ -101,6 +110,7 @@ const ACTIONS = {
   scorerHome: { run: scorerHome_ },
   game: { run: getGame_ },
   record: { run: record_ },
+  flow: { run: recordFlow_ },
   setStatus: { run: setStatus_ },
   setOppRoster: { run: setOppRoster_ },
   all: { need: 'view', run: all_ },
@@ -182,10 +192,13 @@ function scorerHome_(who) {
     const ids = {};
     mine.forEach(p => { ids[p.id] = true; });
     const boxes = boxes_();
+    const flows = who.perms.viewGroups.indexOf('min') >= 0 ? flows_() : {};
     out.myStats = all.filter(g => boxes[g.id]).map(g => {
       const box = {};
       Object.keys(boxes[g.id]).forEach(k => { if (ids[k]) box[k] = boxes[g.id][k]; });
-      return { game: { id: g.id, date: g.date, opponent: g.opponent, location: g.location, status: g.status }, box: filterBox_(box, who.perms.viewGroups) };
+      const x = { game: { id: g.id, date: g.date, opponent: g.opponent, location: g.location, status: g.status }, box: filterBox_(box, who.perms.viewGroups) };
+      if (flows[g.id]) x.flow = onlyPlayers_(flows[g.id], ids);
+      return x;
     }).filter(x => Object.keys(x.box).length);
   }
   return out;
@@ -226,7 +239,11 @@ function getGame_(who, data) {
     periods: byPeriod.periods,
     periodBoxes: byPeriod.boxes,
     currentPeriod: byPeriod.current,
+    canClock: track && !!(who.perms.clock || who.perms.manage),
+    quarterMinutes: getSettings_().quarterMinutes,
   };
+  // Minutes and plus/minus: while tracking you see them live; afterwards only if allowed.
+  if (track || seesAll_(who) || who.perms.viewGroups.indexOf('min') >= 0) out.flow = flows_(g.id)[g.id] || null;
   if (who.role === 'coach') out.parentBooks = parentBooks_(g.id);
   return out;
 }
@@ -282,7 +299,7 @@ function record_(who, data) {
       else if (!playerIds[playerId]) throw new Error('Unknown player.');
       const time = isNaN(Date.parse(e.time)) ? new Date().toISOString() : new Date(e.time).toISOString();
       const period = Number(e.period);
-      rows.push([id, g.id, playerId, stat, delta, time, who.name, personal ? who.id : '', Number.isInteger(period) && period >= 1 && period <= 9 ? period : '']);
+      rows.push([id, g.id, playerId, stat, delta, time, who.name, personal ? who.id : '', Number.isInteger(period) && period >= 1 && period <= 9 ? period : '', e.fix ? true : '']);
       seen[id] = true;
     });
     appendRows_('Events', rows);
@@ -300,6 +317,49 @@ function setStatus_(who, data) {
     checkGameAccess_(who, g);
     updateGameField_(g.id, 'Status', status);
     return { ok: true, status: status };
+  });
+}
+
+/**
+ * The game clock and substitutions from the stat keeper running the clock. Like plays, each row has
+ * an id from the phone, so a retry after a dropped connection is never saved twice.
+ */
+function recordFlow_(who, data) {
+  const list = data.rows;
+  if (!Array.isArray(list) || !list.length) return { saved: 0 };
+  if (list.length > 200) throw new Error('Too many clock entries in one request.');
+  return withLock_(() => {
+    const g = findGame_(data.gameId);
+    checkGameAccess_(who, g);
+    if (!who.perms.clock && !who.perms.manage) throw new Error("You're not set up to run the clock. Ask the coach.");
+    const playerIds = {};
+    listPlayers_().forEach(p => { playerIds[p.id] = true; });
+    const seen = {};
+    readColumn_('Flow', 1).forEach(id => { seen[str_(id)] = true; });
+    const rows = [];
+    list.forEach(r => {
+      const id = str_(r.id).slice(0, 64);
+      if (!id) throw new Error('Clock entry is missing an id.');
+      if (seen[id]) return;
+      const type = str_(r.type);
+      if (FLOW_TYPES.indexOf(type) < 0) throw new Error('Unknown clock entry.');
+      const clock = Number(r.clock);
+      if (!Number.isInteger(clock) || clock < 0 || clock > 36000) throw new Error('Bad clock time.');
+      const period = Number(r.period);
+      if (!Number.isInteger(period) || period < 1 || period > 9) throw new Error('Bad quarter.');
+      let players = '';
+      if (type === 'lineup') {
+        const ids = (Array.isArray(r.players) ? r.players : []).map(str_);
+        if (ids.length > ON_COURT || ids.some(p => !playerIds[p]) || ids.some((p, i) => ids.indexOf(p) !== i)) throw new Error('Pick up to ' + ON_COURT + ' players from the roster.');
+        players = ids.join(',');
+      }
+      const time = isNaN(Date.parse(r.time)) ? new Date().toISOString() : new Date(r.time).toISOString();
+      rows.push([id, g.id, type, clock, period, players, time, who.name]);
+      seen[id] = true;
+    });
+    appendRows_('Flow', rows);
+    if (rows.length && g.status === 'scheduled') updateGameField_(g.id, 'Status', 'live');
+    return { saved: rows.length };
   });
 }
 
@@ -339,12 +399,13 @@ function all_(who) {
   try { sheetUrl = SpreadsheetApp.getActiveSpreadsheet().getUrl(); } catch (e) { /* ignore */ }
   return {
     me: who ? me_(who) : { role: 'coach', name: 'Coach', teamName: s.teamName, perms: ALL_PERMS },
-    settings: { teamName: s.teamName, season: s.season },
+    settings: { teamName: s.teamName, season: s.season, quarterMinutes: s.quarterMinutes },
     players: listPlayers_(),
     // PINs and permissions are only ever sent to the coach.
     parents: readTable_('Parents').map(parent_).map(p => (isCoach ? p : { id: p.id, name: p.name, active: p.active })),
     games: listGames_(),
     boxes: seesAll_(who) ? boxes_() : filterAllBoxes_(boxes_(), who.perms.viewGroups),
+    flows: seesAll_(who) || who.perms.viewGroups.indexOf('min') >= 0 ? flowSummaries_() : {},
     appUrl: isCoach ? appUrl : '',
     sheetUrl: isCoach ? sheetUrl : '',
   };
@@ -395,7 +456,8 @@ function addGames_(who, d) {
 function deletePlayer_(who, d) {
   withLock_(() => {
     const row = findRow_('Players', d.id);
-    const hasStats = readColumn_('Events', 3).some(pid => str_(pid) === str_(row.ID));
+    const hasStats = readColumn_('Events', 3).some(pid => str_(pid) === str_(row.ID)) ||
+      readColumn_('Flow', 6).some(ids => idList_(ids).indexOf(str_(row.ID)) >= 0);
     if (hasStats) {
       // Keep their history; just hide them from new games.
       writeRow_('Players', row._row, { ID: row.ID, Number: row.Number, Name: row.Name, Active: false });
@@ -441,6 +503,7 @@ function deleteGame_(who, d) {
     sheet_('Games').deleteRow(row._row);
     const keep = readRaw_('Events').filter(r => str_(r[1]) !== str_(d.id));
     replaceRows_('Events', keep);
+    replaceRows_('Flow', readRaw_('Flow').filter(r => str_(r[1]) !== str_(d.id)));
   });
   return all_(who);
 }
@@ -526,6 +589,11 @@ function saveSettings_(who, d) {
     if (teamName) setSetting_('Team Name', teamName);
     const season = clean_(d.season, 20);
     if (season) setSetting_('Season', season);
+    if (d.quarterMinutes != null && d.quarterMinutes !== '') {
+      const q = Number(d.quarterMinutes);
+      if (!Number.isInteger(q) || q < 1 || q > 20) throw new Error('Quarter length should be 1 to 20 minutes.');
+      setSetting_('Quarter Minutes', String(q));
+    }
   });
   return all_(who);
 }
@@ -565,6 +633,8 @@ function getSettings_() {
     teamName: map['Team Name'] || TEAM_DEFAULT,
     season: map['Season'] || '',
     coachPin: map['Coach PIN'] || '',
+    // Length of a quarter on the game clock (overtime is half that). High school: 8.
+    quarterMinutes: Number(map['Quarter Minutes']) || 8,
   };
 }
 
@@ -745,6 +815,109 @@ function periods_(gameId) {
     if (p > current) current = p;
   });
   return { periods: periods, boxes: boxes, current: current };
+}
+
+function timeMs_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') return v.getTime();
+  const t = Date.parse(str_(v));
+  return isNaN(t) ? 0 : t;
+}
+
+/**
+ * Minutes and plus/minus from the Flow rows (the clock and lineups) and the official plays.
+ *   { gameId: {
+ *       min: { playerId: seconds on the court while the clock ran },
+ *       pm:  { playerId: our points minus their points while on the court },
+ *       periods: { 1: { min: {...}, pm: {...} } },
+ *       lineup: [ids on the court now],
+ *       clock: { elapsed, running, period, periodStart: { 1: seconds }, updated: ms } } }
+ * Minutes count clock time only, so they're as good as the stat keeper's starts and stops.
+ * A basket counts for whoever was on the court at the moment it was entered.
+ */
+function flows_(onlyGameId) {
+  const byGame = {};
+  readRaw_('Flow').forEach(r => {
+    const gameId = str_(r[1]);
+    if (onlyGameId && gameId !== onlyGameId) return;
+    (byGame[gameId] = byGame[gameId] || []).push({
+      type: str_(r[2]), clock: Number(r[3]) || 0, period: Number(r[4]) || 0, players: idList_(r[5]), time: timeMs_(r[6]),
+    });
+  });
+  const out = {};
+  const now = Date.now();
+  Object.keys(byGame).forEach(gameId => {
+    const rows = byGame[gameId]; // in the order the stat keeper entered them
+    const f = { min: {}, pm: {}, periods: {}, lineup: [], clock: { elapsed: 0, running: false, period: 1, periodStart: {}, updated: 0 } };
+    const per = n => f.periods[n] || (f.periods[n] = { min: {}, pm: {} });
+    let lineup = [], running = false, prev = null, period = 1;
+    const credit = secs => {
+      if (secs <= 0) return;
+      lineup.forEach(id => {
+        f.min[id] = (f.min[id] || 0) + secs;
+        const p = per(period);
+        p.min[id] = (p.min[id] || 0) + secs;
+      });
+    };
+    const lineups = []; // [time, ids] for plus/minus
+    rows.forEach(r => {
+      if (running && prev) credit(r.clock - prev.clock);
+      if (r.period) period = r.period;
+      if (!(period in f.clock.periodStart)) f.clock.periodStart[period] = r.clock;
+      if (r.type === 'start') running = true;
+      else if (r.type === 'stop') running = false;
+      else if (r.type === 'lineup') { lineup = r.players; lineups.push([r.time, lineup]); }
+      prev = r;
+    });
+    let elapsed = prev ? prev.clock : 0;
+    if (running && prev) {
+      const extra = Math.max(0, Math.floor((now - prev.time) / 1000));
+      credit(extra);
+      elapsed += extra;
+    }
+    f.lineup = lineup;
+    f.clock = { elapsed: elapsed, running: running, period: period, periodStart: f.clock.periodStart, updated: prev ? prev.time : 0 };
+    f.lineups = lineups;
+    out[gameId] = f;
+  });
+  // Plus/minus: every official point, credited to the lineup on the court when it was entered.
+  // Box score fixes (− / +) aren't plays on the court, so they don't count.
+  if (Object.keys(out).length) {
+    readRaw_('Events').forEach(r => {
+      const f = out[str_(r[1])];
+      if (!f || !f.lineups.length || str_(r[7]) || r[9] === true || str_(r[9]).toUpperCase() === 'TRUE') return;
+      const stat = str_(r[3]), pid = str_(r[2]);
+      const pts = stat === 'OPP' ? -(Number(r[4]) || 0) : POINTS_[stat] ? POINTS_[stat] * (Number(r[4]) || 0) * (OPP_ID.test(pid) ? -1 : 1) : 0;
+      if (!pts) return;
+      const t = timeMs_(r[5]);
+      let on = null;
+      for (let i = 0; i < f.lineups.length && f.lineups[i][0] <= t; i++) on = f.lineups[i][1];
+      if (!on) return;
+      const period = Number(r[8]);
+      on.forEach(id => {
+        f.pm[id] = (f.pm[id] || 0) + pts;
+        if (Number.isInteger(period) && period >= 1) {
+          const p = f.periods[period] || (f.periods[period] = { min: {}, pm: {} });
+          p.pm[id] = (p.pm[id] || 0) + pts;
+        }
+      });
+    });
+  }
+  Object.keys(out).forEach(id => { delete out[id].lineups; });
+  return out;
+}
+
+/** Season view: just the game totals ({ gameId: { min, pm } }). */
+function flowSummaries_() {
+  const all = flows_();
+  const out = {};
+  Object.keys(all).forEach(id => { out[id] = { min: all[id].min, pm: all[id].pm }; });
+  return out;
+}
+
+/** A game's minutes and plus/minus for some players only. */
+function onlyPlayers_(f, ids) {
+  const pick = m => { const o = {}; Object.keys(m || {}).forEach(k => { if (ids[k]) o[k] = m[k]; }); return o; };
+  return { min: pick(f.min), pm: pick(f.pm) };
 }
 
 /** Parents' own records for one game: { parentId: { playerId: { STAT: total } } } */
