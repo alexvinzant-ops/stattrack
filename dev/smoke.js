@@ -290,8 +290,23 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.click('[data-act=leaveGame]');
     await coach.click('[data-act=tab][data-tab=season]');
     await coach.click('[data-act=seasonMode][data-m=tot]');
+    // Coach keeps stats for a second game so Ava has a trend.
+    await coach.click('[data-act=tab][data-tab=games]');
+    await coach.click('.card:has-text("Hillside") [data-act=openGame]');
+    await coach.waitForSelector('form[data-form=whosHere]');
+    await coach.click('form[data-form=whosHere] button[type=submit]');
+    await coach.click('.pbtn:has(.n:text-is("#3"))'); await coach.click('.sbtn[data-code="2M"]');
+    await coach.click('.pbtn:has(.n:text-is("#3"))'); await coach.click('.sbtn[data-code="FM"]');
+    await coach.waitForSelector('.sync:text("All saved")');
+    await coach.click('[data-act=leaveGame]');
+    await coach.click('[data-act=tab][data-tab=season]');
     await coach.click('tr[data-act=openPlayer]:has-text("Ava Guard")');
     await coach.waitForSelector('text=Game log');
+    assert.equal(await coach.locator('svg.trend rect.bar').count(), 2, 'one bar per game');
+    assert.deepEqual(await coach.$$eval('svg.trend .tv', ts => ts.map(t => t.textContent)), ['4', '3']);
+    await coach.click('[data-act=trendStat][data-k=ftp]');
+    assert.deepEqual(await coach.$$eval('svg.trend .tv', ts => ts.map(t => t.textContent)), ['100%', '100%']);
+    await coach.click('[data-act=trendStat][data-k=pts]');
     await shot(coach, '07-player');
     await coach.click('[data-act=back]');
     await coach.click('[data-act=writeReport]');
@@ -331,7 +346,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.click('[data-act=tab][data-tab=season]');
     await coach.click('[data-act=refresh]');
     const avaPts = await coach.$$eval('tr:has-text("Ava Guard") td', tds => tds[2].textContent);
-    assert.equal(avaPts, '4');
+    assert.equal(avaPts, '7'); // 4 + 3 official; Pat's separate record (3 more) is not counted
 
     // Pat can see Ava's official stats.
     await pat.click('[data-act=leaveGame]');
@@ -341,7 +356,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     const saved = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
     assert.ok(saved['Game Log'].some(r => r[6] === 'Opponent' && r[7] === '23' && r[9] === 3), 'opponent rows exported');
     assert.equal(saved['Season Stats'][0][1], 'Player');
-    assert.equal(saved['Season Stats'].length, 6, 'five players who played');
+    assert.equal(saved['Season Stats'].length, 7, 'six players who played (Finn played the second game)');
 
     assert.deepEqual(errors, [], 'no page errors');
     console.log('SMOKE TEST PASSED');

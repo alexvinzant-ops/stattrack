@@ -177,6 +177,19 @@ table.compare tr.book-row td { border-bottom-width: 2px; }
 .period-seg button.on { background: var(--gold); color: #1d2433; }
 .box-filter { margin: 4px 0 10px; display: flex; flex-wrap: wrap; }
 .box-filter button { flex: 1; min-width: 44px; padding: 6px 8px; }
+.trend-wrap { overflow-x: auto; }
+svg.trend { width: 100%; min-width: 320px; height: auto; display: block; }
+svg.trend .bar { fill: var(--accent); }
+svg.trend .axis { stroke: var(--line); stroke-width: 1.5; }
+svg.trend .avg { stroke: var(--gold); stroke-width: 2; stroke-dasharray: 6 4; }
+svg.trend text { font: 600 17px -apple-system, Segoe UI, Roboto, sans-serif; text-anchor: middle; fill: var(--ink); }
+svg.trend .tl { fill: var(--muted); font-weight: 500; }
+svg.trend .tl.op { font-size: 14px; }
+svg.trend .tv { font-size: 20px; font-weight: 800; }
+.trend-seg { display: flex; flex-wrap: wrap; gap: 2px; margin: 4px 0 10px; }
+.trend-seg button { flex: 0 0 auto; padding: 6px 10px; }
+svg.trend .muted-t { fill: var(--muted); }
+svg.trend .avg-t { text-anchor: end; fill: #8a6400; font-weight: 800; }
 #print-root { display: none; }
 body.show-print #app, body.show-print #modal-root, body.show-print #toast-root { display: none; }
 body.show-print #print-root { display: block; background: #fff; min-height: 100vh; }
@@ -570,6 +583,56 @@ function viewScorerHome() {
 }
 
 // Read-only official stats for a parent's own players (only when the coach allows it).
+// ---------------------------------------------------------------------------
+// Player trends: one bar per game for the chosen stat, with the season average as a dashed line.
+// ---------------------------------------------------------------------------
+const TRENDS = [
+  { k: 'pts', l: 'PTS', g: 'scoring', v: l => l.pts },
+  { k: 'reb', l: 'REB', g: 'reb', v: l => l.REB },
+  { k: 'ast', l: 'AST', g: 'ast', v: l => l.AST },
+  { k: 'stl', l: 'STL', g: 'stl', v: l => l.STL },
+  { k: 'to', l: 'TO', g: 'to', v: l => l.TO },
+  { k: 'pf', l: 'PF', g: 'pf', v: l => l.PF },
+  { k: 'fgp', l: 'FG%', g: 'scoring', pct: ['fgm', 'fga'] },
+  { k: 'ftp', l: 'FT%', g: 'scoring', pct: ['FTM', 'FTA'] },
+];
+function trendChart(games) {
+  const opts = TRENDS.filter(o => canSeeGroup(o.g)).concat(typeof flowTrends === 'function' ? flowTrends() : []);
+  if (games.length < 2 || !opts.length) return '';
+  const o = opts.find(x => x.k === S.trendStat) || opts[0];
+  const pts = games.map(x => {
+    if (o.pct) { const a = x.l[o.pct[1]]; return a ? Math.round(1000 * x.l[o.pct[0]] / a) / 10 : null; }
+    return o.v(x.l);
+  });
+  const vals = pts.filter(v => v != null);
+  if (!vals.length) return '';
+  let avgV;
+  if (o.pct) {
+    const m = games.reduce((a, x) => a + x.l[o.pct[0]], 0), at = games.reduce((a, x) => a + x.l[o.pct[1]], 0);
+    avgV = at ? 100 * m / at : 0;
+  } else avgV = vals.reduce((a, v) => a + v, 0) / vals.length;
+  const max = Math.max(o.pct ? 100 : 1, ...vals, avgV);
+  const W = 640, H = 260, padL = 20, padB = 48, padT = 28, bw = (W - padL - 8) / games.length;
+  const y = v => padT + (H - padT - padB) * (1 - v / max);
+  const bars = games.map((x, i) => {
+    const v = pts[i], cx = padL + i * bw + bw / 2;
+    const label = '<text x="' + cx + '" y="' + (H - padB + 20) + '" class="tl">' + esc(fmtDate(x.game.date).replace(/^\w+, /, '')) + '</text>' +
+      '<text x="' + cx + '" y="' + (H - padB + 38) + '" class="tl op">' + esc(String(x.game.opponent).slice(0, 10)) + '</text>';
+    if (v == null) return label + '<text x="' + cx + '" y="' + (H - padB - 4) + '" class="tv muted-t">–</text>';
+    const top = y(v), w = Math.max(6, Math.min(48, bw * 0.6));
+    return '<rect x="' + (cx - w / 2) + '" y="' + top + '" width="' + w + '" height="' + Math.max(1, H - padB - top) + '" rx="4" class="bar"/>' +
+      '<text x="' + cx + '" y="' + (top - 4) + '" class="tv">' + (o.pct ? v.toFixed(0) + '%' : v) + '</text>' + label;
+  }).join('');
+  const ay = y(avgV);
+  const svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" class="trend" role="img" aria-label="' + esc(o.l) + ' by game">' +
+    '<line x1="' + padL + '" x2="' + (W - 4) + '" y1="' + (H - padB) + '" y2="' + (H - padB) + '" class="axis"/>' + bars +
+    '<line x1="' + padL + '" x2="' + (W - 4) + '" y1="' + ay + '" y2="' + ay + '" class="avg"/>' +
+    '<text x="' + (W - 6) + '" y="' + (ay - 4) + '" class="avg-t">avg ' + (o.pct ? avgV.toFixed(1) + '%' : avgV.toFixed(1)) + '</text></svg>';
+  return '<div class="card"><div class="row wrap-row" style="margin-bottom:6px"><h2 style="margin:0;flex:1">Trend</h2></div>' +
+    '<div class="seg trend-seg">' + opts.map(x => '<button class="' + (x.k === o.k ? 'on' : '') + '" data-act="trendStat" data-k="' + x.k + '">' + x.l + '</button>').join('') + '</div>' +
+    '<div class="trend-wrap">' + svg + '</div><p class="muted small" style="margin:4px 0 0">One bar per game, oldest on the left. Dashed line = season average.</p></div>';
+}
+
 function viewMyStats(mine, myStats) {
   return mine.map(p => {
     const games = myStats.filter(x => played(x.box[p.id]));
@@ -579,6 +642,7 @@ function viewMyStats(mine, myStats) {
     const tiles = statTiles(l, gp, ['PPG', 'RPG', 'APG', 'SPG', 'FG%', 'FT%']);
     const rows = games.slice().reverse().map(x => '<tr><td>' + esc(fmtDate(x.game.date)) + ' <span class="muted">' + esc(gameTitle(x.game)) + '</span></td>' + boxCells(line(x.box[p.id])) + '</tr>').join('');
     return '<div class="section-title">' + esc(playerLabel(p)) + ': official stats</div><div class="tiles">' + tiles + '</div>' +
+      trendChart(games.map(x => ({ game: x.game, l: line(x.box[p.id]) }))) +
       '<div class="card"><div class="table-wrap"><table><thead><tr><th>Game</th>' + boxHead() + '</tr></thead><tbody>' +
       (rows || '<tr><td colspan="12" class="muted" style="position:static">No games yet</td></tr>') + '</tbody></table></div></div>';
   }).join('');
@@ -1092,6 +1156,7 @@ function viewPlayer() {
   }).join('');
   return topBar(playerLabel(p), '<button class="link" data-act="back">‹ Back</button>', '') +
     '<div class="wrap"><div class="tiles">' + tiles + '</div>' +
+    trendChart(games.map(g => ({ game: g, l: line(d.boxes[g.id][p.id]) }))) +
     '<div class="card"><h2>Game log</h2><p class="muted small" style="margin-top:0">' + gp + ' game' + (gp === 1 ? '' : 's') + ' played · ' + l.pts + ' points total</p>' +
     '<div class="table-wrap"><table><thead><tr><th>Game</th>' + boxHead() + '</tr></thead><tbody>' +
     (rows || '<tr><td colspan="12" class="muted">No games yet</td></tr>') +
@@ -1825,6 +1890,7 @@ const ACTS = {
     el.closest('form').querySelectorAll('input[name=' + el.dataset.name + ']').forEach(i => { i.checked = !!el.dataset.on; });
   },
   printBox() { printBox(); },
+  trendStat(el) { S.trendStat = el.dataset.k; render(); },
   doPrint() { window.print(); },
   closePrint() { document.body.classList.remove('show-print'); $('#print-root').innerHTML = ''; },
   editScope(el) { lineEditor(el.dataset.id, Number(el.dataset.n)); },
