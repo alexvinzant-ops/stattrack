@@ -57,13 +57,19 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.click('.modal [data-act=closeModal]');
     await coach.waitForSelector('.list-item:has-text("Jamie") .chip.win');
     const parentPin = (await coach.textContent('.pin')).trim();
-    // A second parent who may only view season stats.
+    // A second parent who may see the whole team afterwards, but only rebounds and assists.
     await coach.click('[data-act=editParent]:has-text("Add person")');
     await coach.fill('input[name=name]', 'Grandpa Joe');
-    await coach.uncheck('input[name=perm_fixStats]');
-    await coach.check('input[name=perm_viewStats]');
+    assert.equal(await coach.isChecked('input[name=see][value=none]'), true, 'sees nothing by default');
+    await coach.uncheck('input[name=fixStats]');
+    await coach.check('input[name=see][value=team]');
+    await coach.click('[data-act=checkAll][data-name=vg][data-on=""]');
+    await coach.check('input[name=vg][value=reb]');
+    await coach.check('input[name=vg][value=ast]');
     await coach.click('form[data-form=parent] button[type=submit]');
     await coach.waitForSelector('text=Grandpa Joe');
+    assert.match(await coach.textContent('.list-item:has-text("Grandpa Joe")'), /After games: sees whole team \(Rebounds, Assists\)/);
+    assert.match(await coach.textContent('.list-item:has-text("Jamie")'), /After games: sees nothing/);
     const viewerPin = (await coach.textContent('.list-item:has-text("Grandpa Joe") .pin')).trim();
     await coach.click('.list-item:has-text("Grandpa Joe") [data-act=editParent]');
     await shot(coach, '02b-access-edit');
@@ -79,7 +85,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.click('[data-act=editGame]:has-text("New game")');
     await coach.fill('input[name=opponent]', 'Valley Christian');
     await coach.fill('textarea[name=oppRoster]', '4 Smith, 12, 23');
-    await coach.selectOption('select[name=scorerId]', { label: 'Jamie (Ava’s mom)' });
+    await coach.check('.modal .player-checks label:has-text("Jamie") input');
     await coach.click('form[data-form=game] button[type=submit]');
     await coach.waitForSelector('text=vs Valley Christian');
     await coach.click('[data-act=editGame]:has-text("New game")');
@@ -92,11 +98,16 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.click('[data-act=tab][data-tab=parents]');
     await coach.click('[data-act=editParent]:has-text("Add person")');
     await coach.fill('input[name=name]', 'Pat (Ava’s dad)');
-    await coach.check('input[name=perm_viewOwn]');
     await coach.check('.player-checks label:has-text("Ava Guard") input');
+    await coach.check('input[name=see][value=own]');
+    // Pat only enters scoring and steals.
+    await coach.click('[data-act=checkAll][data-name=tg][data-on=""]');
+    await coach.check('input[name=tg][value=scoring]');
+    await coach.check('input[name=tg][value=stl]');
     await coach.click('form[data-form=parent] button[type=submit]');
     await coach.waitForSelector('.list-item:has-text("Pat (Ava’s dad)")');
-    assert.match(await coach.textContent('.list-item:has-text("Pat (Ava’s dad)")'), /Tracks Ava/);
+    assert.match(await coach.textContent('.list-item:has-text("Pat (Ava’s dad)")'), /Own record of: Ava/);
+    assert.match(await coach.textContent('.list-item:has-text("Pat (Ava’s dad)")'), /Points & shooting, Steals/);
     const patPin = (await coach.textContent('.list-item:has-text("Pat (Ava’s dad)") .pin')).trim();
     await coach.click('.list-item:has-text("Jamie") [data-act=invite]');
     const invite = await coach.inputValue('#inviteText');
@@ -228,6 +239,8 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     if (await pat.locator('form[data-form=whosHere]').count()) await pat.click('form[data-form=whosHere] button[type=submit]');
     assert.equal(await pat.locator('.pbtn').count(), 1, 'only Ava');
     assert.equal(await pat.locator('[data-act=side]').count(), 0, 'no opponent tracking');
+    assert.equal(await pat.locator('.sbtn[data-code=REB]').count(), 0, 'only the stats the coach allowed');
+    assert.equal(await pat.locator('.sbtn').count(), 7, '6 shooting buttons + STL');
     await pat.click('.pbtn'); await pat.click('.sbtn[data-code="3M"]');
     await pat.click('.pbtn'); await pat.click('.sbtn[data-code="STL"]');
     await pat.waitForSelector('.sync:text("All saved")');
@@ -258,6 +271,10 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     const viewer = await newPhone();
     await typePin(viewer, viewerPin);
     await viewer.waitForSelector('text=Player stats');
+    const vHead = await viewer.$$eval('.card:has-text("Player stats") th', ths => ths.map(t => t.textContent.replace(/[▾▴]/, '').trim()));
+    assert.deepEqual(vHead, ['Player', 'GP', 'REB', 'AST'], 'only rebounds and assists');
+    assert.equal(await viewer.locator('.tile:has-text("Record")').count(), 0, 'no scoring = no record/points');
+    await shot(viewer, '07b-viewer-season');
     assert.equal(await viewer.locator('[data-tab=parents]').count(), 0);
     assert.equal(await viewer.locator('[data-tab=roster]').count(), 0);
     assert.equal(await viewer.locator('text=Google Sheet').count(), 0);
@@ -265,6 +282,9 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     assert.equal(await viewer.locator('[data-act=editGame]').count(), 0);
     await viewer.click('.card:has-text("Valley Christian") [data-act=openBox]');
     await viewer.waitForSelector('tr.total');
+    const bHead = await viewer.$$eval('.card:has(tr.total) th', ths => ths.map(t => t.textContent));
+    assert.deepEqual(bHead.slice(0, 3), ['Player', 'REB', 'AST']);
+    assert.equal(await viewer.textContent('.score .pts'), '–');
     assert.equal(await viewer.locator('tr[data-act=editLine]').count(), 0, 'read-only box score');
     assert.equal(await viewer.locator('[data-tab=track]').count(), 0);
     await shot(viewer, '08-viewer-box');

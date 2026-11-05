@@ -178,6 +178,17 @@ table.compare tr.book-row td { border-bottom-width: 2px; }
 .box-filter button { flex: 1; min-width: 44px; padding: 6px 8px; }
 .team-fouls { font-size: 13px; opacity: .9; }
 .end-game { margin-top: 16px; border: 2px solid var(--bad); }
+.access-step { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; margin-top: 14px; }
+.step-title { font-weight: 800; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: inline-grid; place-items: center; font-size: 13px; }
+.step-label { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 12px 0 2px; }
+label.check.choice { align-items: flex-start; }
+label.check span .muted, label.check.choice span .muted { display: block; font-weight: 400; }
+.group-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.group-checks label.check { padding: 6px 0; align-items: flex-start; }
+.access-step:has(input[name=see][value=none]:checked) .view-groups { opacity: .35; pointer-events: none; }
+.access-help { margin: 4px 0 8px; padding-left: 18px; }
+.access-help li { margin-bottom: 4px; }
 .invite-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .invite-actions .btn { width: 100%; }
 .player-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
@@ -319,10 +330,20 @@ function gameTitle(g) { return (LOC[g.location] || 'vs') + ' ' + g.opponent; }
 function playerLabel(p) { return ((p.number !== '' ? '#' + p.number + ' ' : '') + p.name).trim(); }
 function can(k) { return !!S.me && (S.me.role === 'coach' || !!(S.me.perms && S.me.perms[k])); }
 function hasDashboard() { return can('viewStats') || can('manage'); }
+const fullAccess = () => !!S.me && (S.me.role === 'coach' || !!(S.me.perms && S.me.perms.manage));
+// Which stats this person may enter (coach / assistant coach: everything).
+function canTrackGroup(g) { return fullAccess() || ((S.me.perms || {}).trackGroups || TRACK_GROUP_KEYS).indexOf(g) >= 0; }
+// Which stats this person may see. While tracking a live game they see that game's numbers.
+function canSeeGroup(g) {
+  if (fullAccess() || (S.view === 'game' && S.t && S.t.canTrack)) return true;
+  return ((S.me.perms || {}).viewGroups || VIEW_GROUP_KEYS).indexOf(g) >= 0;
+}
+const STAT_GROUP = { FG2M: 'scoring', FG2A: 'scoring', FG3M: 'scoring', FG3A: 'scoring', FTM: 'scoring', FTA: 'scoring', REB: 'reb', AST: 'ast', STL: 'stl', BLK: 'blk', TO: 'to', PF: 'pf' };
+const TAP_GROUP = { '2M': 'scoring', '2X': 'scoring', '3M': 'scoring', '3X': 'scoring', 'FM': 'scoring', 'FX': 'scoring', REB: 'reb', AST: 'ast', STL: 'stl', BLK: 'blk', TO: 'to', PF: 'pf' };
 function canTrackGame(g) {
   if (can('manage')) return true;
   if (g.status === 'final') return false;
-  return g.scorerId === S.me.id || can('trackAny');
+  return (g.scorerIds || []).indexOf(S.me.id) >= 0 || can('trackAny');
 }
 function byNumber(a, b) {
   const x = a.number === '' ? 999 : +a.number, y = b.number === '' ? 999 : +b.number;
@@ -509,11 +530,10 @@ function viewMyStats(mine, myStats) {
     let tot = {};
     games.forEach(x => { tot = addLine(tot, x.box[p.id]); });
     const l = line(tot), gp = games.length;
-    const tiles = [['PPG', avg(l.pts, gp)], ['RPG', avg(l.REB, gp)], ['APG', avg(l.AST, gp)], ['SPG', avg(l.STL, gp)], ['FG%', pct(l.fgm, l.fga)], ['FT%', pct(l.FTM, l.FTA)]]
-      .map(([k, v]) => '<div class="tile"><div class="label">' + k + '</div><div class="value">' + v + '</div></div>').join('');
+    const tiles = statTiles(l, gp, ['PPG', 'RPG', 'APG', 'SPG', 'FG%', 'FT%']);
     const rows = games.slice().reverse().map(x => '<tr><td>' + esc(fmtDate(x.game.date)) + ' <span class="muted">' + esc(gameTitle(x.game)) + '</span></td>' + boxCells(line(x.box[p.id])) + '</tr>').join('');
     return '<div class="section-title">' + esc(playerLabel(p)) + ': official stats</div><div class="tiles">' + tiles + '</div>' +
-      '<div class="card"><div class="table-wrap"><table><thead><tr><th>Game</th><th>PTS</th><th>FG</th><th>FG%</th><th>3P</th><th>FT</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TO</th><th>PF</th></tr></thead><tbody>' +
+      '<div class="card"><div class="table-wrap"><table><thead><tr><th>Game</th>' + boxHead() + '</tr></thead><tbody>' +
       (rows || '<tr><td colspan="12" class="muted" style="position:static">No games yet</td></tr>') + '</tbody></table></div></div>';
   }).join('');
 }
@@ -556,10 +576,10 @@ function viewGame() {
       '<div class="small" style="opacity:.85">Kept separately. It doesn\'t change the official stats.</div></div>' +
       '<div class="team"><div class="nm">Points</div><div class="pts">' + teamPts(t.box) + '</div></div></div></div>'
     : '<div class="score"><div class="inner">' +
-    '<div class="team"><div class="nm">' + esc(S.teamName) + '</div><div class="pts">' + teamPts(t.box) + '</div></div>' +
+    '<div class="team"><div class="nm">' + esc(S.teamName) + '</div><div class="pts">' + (canSeeGroup('scoring') ? teamPts(t.box) : '–') + '</div></div>' +
     '<div class="dash">–</div>' +
-    '<div class="team"><div class="nm">' + esc(g.opponent) + '</div><div class="pts">' + oppPts(t.box) + '</div>' +
-    (t.canTrack ? '<div class="opp-pad" aria-label="Opponent points">' : '<div class="hidden">') + '<button data-act="opp" data-d="1">+1</button><button data-act="opp" data-d="2">+2</button><button data-act="opp" data-d="3">+3</button><button data-act="opp" data-d="-1" ' + (oppPts(t.box) ? '' : 'disabled') + '>−1</button></div></div>' +
+    '<div class="team"><div class="nm">' + esc(g.opponent) + '</div><div class="pts">' + (canSeeGroup('scoring') ? oppPts(t.box) : '–') + '</div>' +
+    (t.canTrack && canTrackGroup('opp') ? '<div class="opp-pad" aria-label="Opponent points">' : '<div class="hidden">') + '<button data-act="opp" data-d="1">+1</button><button data-act="opp" data-d="2">+2</button><button data-act="opp" data-d="3">+3</button><button data-act="opp" data-d="-1" ' + (oppPts(t.box) ? '' : 'disabled') + '>−1</button></div></div>' +
     '</div></div>';
   const head = topBar(gameTitle(g), left, t.canTrack ? syncHtml() : '', tabs) + scoreboard + (t.canTrack && t.tab === 'track' ? periodBar() : '');
   const body = t.tab === 'track' && t.canTrack ? viewTracker() : viewGameBox(coach);
@@ -629,16 +649,19 @@ function viewTracker() {
       '<div class="ln">' + l.pts + ' pts · <span class="' + fc + '">' + l.PF + ' F</span></div></button>';
   }).join('');
   const b = (code, top, bottom, cls) => '<button class="sbtn ' + (cls || '') + (t.armed === code ? ' armed' : '') + '" data-act="stat" data-code="' + code + '">' + top + (bottom ? '<small>' + bottom + '</small>' : '') + '</button>';
-  const pad = '<div class="pad">' +
-    b('2M', '2PT', 'MADE', 'make') + b('2X', '2PT', 'MISS', 'miss') + b('3M', '3PT', 'MADE', 'make') + b('3X', '3PT', 'MISS', 'miss') +
-    b('FM', 'FT', 'MADE', 'make') + b('FX', 'FT', 'MISS', 'miss') + b('REB', 'REB') + b('AST', 'AST') +
-    b('STL', 'STL') + b('BLK', 'BLK') + b('TO', 'TO', 'TURNOVER') + b('PF', 'FOUL') +
-    '</div>';
+  // Only the stat buttons this person is allowed to enter.
+  const ok = code => canTrackGroup(TAP_GROUP[code]);
+  const btns = [['2M', '2PT', 'MADE', 'make'], ['2X', '2PT', 'MISS', 'miss'], ['3M', '3PT', 'MADE', 'make'], ['3X', '3PT', 'MISS', 'miss'],
+    ['FM', 'FT', 'MADE', 'make'], ['FX', 'FT', 'MISS', 'miss'], ['REB', 'REB'], ['AST', 'AST'],
+    ['STL', 'STL'], ['BLK', 'BLK'], ['TO', 'TO', 'TURNOVER'], ['PF', 'FOUL']].filter(x => ok(x[0]));
+  const limited = btns.length < 12;
+  const pad = (limited ? '<p class="muted small" style="text-align:center;margin:10px 0 0">You\'re entering: <b>' + esc(TRACK_GROUP_KEYS.filter(canTrackGroup).filter(g => g !== 'opp').map(groupName).join(', ') || 'no stats') + '</b></p>' : '') +
+    (btns.length ? '<div class="pad">' + btns.map(x => b(x[0], x[1], x[2], x[3])).join('') + '</div>' : '<div class="card empty">The coach hasn\'t given you any stats to enter.</div>');
   const plays = t.plays.slice(0, 6);
   const playsHtml = plays.length ? plays.map(playRow).join('') +
     '<button class="btn big" style="margin-top:10px" data-act="allPlays">All plays this game (' + t.plays.length + ')</button>'
     : '<div class="muted small" style="padding:8px 0">Plays you enter will show here so you can undo mistakes.</div>';
-  const sideToggle = isPersonal() ? '' : '<div class="row" style="margin-top:12px"><div class="seg side-seg">' +
+  const sideToggle = isPersonal() || !canTrackGroup('opp') ? '' : '<div class="row" style="margin-top:12px"><div class="seg side-seg">' +
     '<button class="' + (opp ? '' : 'on') + '" data-act="side" data-side="us">' + esc(shortTeam()) + '</button>' +
     '<button class="' + (opp ? 'on' : '') + '" data-act="side" data-side="opp">' + esc(t.game.opponent) + '</button></div></div>';
   const oppNote = opp && !(t.game.oppRoster || []).length
@@ -667,14 +690,25 @@ function boxTable(players, box, clickable, opp) {
       boxCells(l) + '</tr>';
   }).join('');
   const lt = line(tot);
-  return '<div class="table-wrap"><table><thead><tr><th>Player</th><th>PTS</th><th>FG</th><th>FG%</th><th>3P</th><th>FT</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TO</th><th>PF</th></tr></thead><tbody>' +
+  return '<div class="table-wrap"><table><thead><tr><th>Player</th>' + boxHead() + '</tr></thead><tbody>' +
     (tr || '<tr><td colspan="12" class="muted" style="text-align:center;position:static">No stats yet</td></tr>') +
     (rows.length ? '<tr class="total"><td>Team</td>' + boxCells(lt) + '</tr>' : '') +
     '</tbody></table></div>';
 }
-function boxCells(l) {
-  return '<td><b>' + l.pts + '</b></td><td>' + l.fgm + '-' + l.fga + '</td><td>' + pct(l.fgm, l.fga) + '</td><td>' + l.FG3M + '-' + l.FG3A + '</td><td>' + l.FTM + '-' + l.FTA + '</td>' +
-    '<td>' + l.REB + '</td><td>' + l.AST + '</td><td>' + l.STL + '</td><td>' + l.BLK + '</td><td>' + l.TO + '</td><td>' + l.PF + '</td>';
+// Box score columns, each tied to a stat group so people only see what the coach allows.
+const BOX_COLS = [
+  ['PTS', 'scoring', l => '<b>' + l.pts + '</b>'], ['FG', 'scoring', l => l.fgm + '-' + l.fga], ['FG%', 'scoring', l => pct(l.fgm, l.fga)],
+  ['3P', 'scoring', l => l.FG3M + '-' + l.FG3A], ['FT', 'scoring', l => l.FTM + '-' + l.FTA],
+  ['REB', 'reb', l => l.REB], ['AST', 'ast', l => l.AST], ['STL', 'stl', l => l.STL], ['BLK', 'blk', l => l.BLK], ['TO', 'to', l => l.TO], ['PF', 'pf', l => l.PF],
+];
+const boxCols = () => BOX_COLS.filter(c => canSeeGroup(c[1]));
+function boxHead() { return boxCols().map(c => '<th>' + c[0] + '</th>').join(''); }
+function boxCells(l) { return boxCols().map(c => '<td>' + c[2](l) + '</td>').join(''); }
+// Stat tiles (PPG, RPG…) filtered the same way.
+function statTiles(l, gp, which) {
+  const all = { PPG: ['scoring', () => avg(l.pts, gp)], RPG: ['reb', () => avg(l.REB, gp)], APG: ['ast', () => avg(l.AST, gp)], SPG: ['stl', () => avg(l.STL, gp)],
+    'FG%': ['scoring', () => pct(l.fgm, l.fga)], '3P%': ['scoring', () => pct(l.FG3M, l.FG3A)], 'FT%': ['scoring', () => pct(l.FTM, l.FTA)], 'TO/G': ['to', () => avg(l.TO, gp)] };
+  return which.filter(k => canSeeGroup(all[k][0])).map(k => '<div class="tile"><div class="label">' + k + '</div><div class="value">' + all[k][1]() + '</div></div>').join('');
 }
 
 function viewPersonalBox() {
@@ -751,12 +785,15 @@ function quarterCard() {
   ns.sort((a, b) => a - b);
   const cell = (n, k) => n0(((t.periods || {})[n] || {})[k]);
   const row = (label, k, total) => '<tr><td>' + esc(label) + '</td>' + ns.map(n => '<td>' + cell(n, k) + '</td>').join('') + '<td><b>' + total + '</b></td></tr>';
-  return '<div class="card"><h2>By quarter</h2><div class="table-wrap"><table><thead><tr><th>Points</th>' + ns.map(n => '<th>' + periodLabel(n) + '</th>').join('') + '<th>Total</th></tr></thead><tbody>' +
-    row(shortTeam(), 'us', teamPts(t.box)) + row(t.game.opponent, 'opp', oppPts(t.box)) +
-    '</tbody><thead><tr><th>Team fouls</th>' + ns.map(n => '<th>' + periodLabel(n) + '</th>').join('') + '<th></th></tr></thead><tbody>' +
-    row(shortTeam(), 'usPF', '') + row(t.game.opponent, 'oppPF', '') +
-    '</tbody></table></div>' +
-    (Object.keys(t.box).some(k => k !== TEAM && hasAny(t.box[k])) && ns.reduce((a, n) => a + cell(n, 'us'), 0) !== teamPts(t.box)
+  const pts = canSeeGroup('scoring'), fouls = canSeeGroup('pf');
+  if (!pts && !fouls) return '';
+  return '<div class="card"><h2>By quarter</h2><div class="table-wrap"><table>' +
+    (pts ? '<thead><tr><th>Points</th>' + ns.map(n => '<th>' + periodLabel(n) + '</th>').join('') + '<th>Total</th></tr></thead><tbody>' +
+      row(shortTeam(), 'us', teamPts(t.box)) + row(t.game.opponent, 'opp', oppPts(t.box)) + '</tbody>' : '') +
+    (fouls ? '<thead><tr><th>Team fouls</th>' + ns.map(n => '<th>' + periodLabel(n) + '</th>').join('') + '<th></th></tr></thead><tbody>' +
+      row(shortTeam(), 'usPF', '') + row(t.game.opponent, 'oppPF', '') + '</tbody>' : '') +
+    '</table></div>' +
+    (pts && Object.keys(t.box).some(k => k !== TEAM && hasAny(t.box[k])) && ns.reduce((a, n) => a + cell(n, 'us'), 0) !== teamPts(t.box)
       ? '<p class="muted small">Some points were entered before quarters were tracked, so quarters may not add up to the total.</p>' : '') + '</div>';
 }
 
@@ -818,19 +855,19 @@ function teamRecord() {
 
 const SEASON_COLS = [
   { k: 'gp', l: 'GP', v: r => r.gp, raw: true },
-  { k: 'pts', l: 'PTS', v: r => r.l.pts },
-  { k: 'reb', l: 'REB', v: r => r.l.REB },
-  { k: 'ast', l: 'AST', v: r => r.l.AST },
-  { k: 'stl', l: 'STL', v: r => r.l.STL },
-  { k: 'blk', l: 'BLK', v: r => r.l.BLK },
-  { k: 'to', l: 'TO', v: r => r.l.TO },
-  { k: 'fg', l: 'FG', v: r => r.l.fgm, pair: r => [r.l.fgm, r.l.fga] },
-  { k: 'fgp', l: 'FG%', v: r => (r.l.fga ? r.l.fgm / r.l.fga : -1), pct: r => pct(r.l.fgm, r.l.fga) },
-  { k: '3p', l: '3P', v: r => r.l.FG3M, pair: r => [r.l.FG3M, r.l.FG3A] },
-  { k: '3pp', l: '3P%', v: r => (r.l.FG3A ? r.l.FG3M / r.l.FG3A : -1), pct: r => pct(r.l.FG3M, r.l.FG3A) },
-  { k: 'ft', l: 'FT', v: r => r.l.FTM, pair: r => [r.l.FTM, r.l.FTA] },
-  { k: 'ftp', l: 'FT%', v: r => (r.l.FTA ? r.l.FTM / r.l.FTA : -1), pct: r => pct(r.l.FTM, r.l.FTA) },
-  { k: 'pf', l: 'PF', v: r => r.l.PF },
+  { k: 'pts', g: 'scoring', l: 'PTS', v: r => r.l.pts },
+  { k: 'reb', g: 'reb', l: 'REB', v: r => r.l.REB },
+  { k: 'ast', g: 'ast', l: 'AST', v: r => r.l.AST },
+  { k: 'stl', g: 'stl', l: 'STL', v: r => r.l.STL },
+  { k: 'blk', g: 'blk', l: 'BLK', v: r => r.l.BLK },
+  { k: 'to', g: 'to', l: 'TO', v: r => r.l.TO },
+  { k: 'fg', g: 'scoring', l: 'FG', v: r => r.l.fgm, pair: r => [r.l.fgm, r.l.fga] },
+  { k: 'fgp', g: 'scoring', l: 'FG%', v: r => (r.l.fga ? r.l.fgm / r.l.fga : -1), pct: r => pct(r.l.fgm, r.l.fga) },
+  { k: '3p', g: 'scoring', l: '3P', v: r => r.l.FG3M, pair: r => [r.l.FG3M, r.l.FG3A] },
+  { k: '3pp', g: 'scoring', l: '3P%', v: r => (r.l.FG3A ? r.l.FG3M / r.l.FG3A : -1), pct: r => pct(r.l.FG3M, r.l.FG3A) },
+  { k: 'ft', g: 'scoring', l: 'FT', v: r => r.l.FTM, pair: r => [r.l.FTM, r.l.FTA] },
+  { k: 'ftp', g: 'scoring', l: 'FT%', v: r => (r.l.FTA ? r.l.FTM / r.l.FTA : -1), pct: r => pct(r.l.FTM, r.l.FTA) },
+  { k: 'pf', g: 'pf', l: 'PF', v: r => r.l.PF },
 ];
 function colText(c, r, perGame) {
   if (c.pct) return c.pct(r);
@@ -852,19 +889,20 @@ function viewSeason() {
   const rec = teamRecord();
   const rows = seasonTable();
   const perGame = S.seasonMode === 'avg';
-  const leaders = [['PTS', r => r.l.pts], ['REB', r => r.l.REB], ['AST', r => r.l.AST], ['STL', r => r.l.STL]].map(([lbl, f]) => {
+  const cols = SEASON_COLS.filter(c => !c.g || canSeeGroup(c.g));
+  const leaders = [['PTS', 'scoring', r => r.l.pts], ['REB', 'reb', r => r.l.REB], ['AST', 'ast', r => r.l.AST], ['STL', 'stl', r => r.l.STL]].filter(x => canSeeGroup(x[1])).map(([lbl, , f]) => {
     const best = rows.filter(r => r.gp).sort((a, b) => f(b) / b.gp - f(a) / a.gp)[0];
     return '<div class="tile"><div class="label">' + lbl + ' leader</div><div class="value">' + (best ? avg(f(best), best.gp) : '–') + '</div><div class="sub">' + (best ? esc(playerLabel(best.p)) : 'No games yet') + '</div></div>';
   }).join('');
-  const col = SEASON_COLS.find(c => c.k === S.sort.key) || SEASON_COLS[1];
+  const col = cols.find(c => c.k === S.sort.key) || cols[1] || cols[0];
   rows.sort((a, b) => (sortVal(col, a, perGame) - sortVal(col, b, perGame)) * S.sort.dir || byNumber(a.p, b.p));
-  const head = '<tr><th>Player</th>' + SEASON_COLS.map(c => '<th class="sortable ' + (c.k === S.sort.key ? 'sorted' : '') + '" data-act="sort" data-k="' + c.k + '">' + c.l + (c.k === S.sort.key ? (S.sort.dir < 0 ? ' ▾' : ' ▴') : '') + '</th>').join('') + '</tr>';
+  const head = '<tr><th>Player</th>' + cols.map(c => '<th class="sortable ' + (c.k === col.k ? 'sorted' : '') + '" data-act="sort" data-k="' + c.k + '">' + c.l + (c.k === col.k ? (S.sort.dir < 0 ? ' ▾' : ' ▴') : '') + '</th>').join('') + '</tr>';
   const body = rows.map(r => '<tr class="click" data-act="openPlayer" data-id="' + esc(r.p.id) + '"><td><span class="pnum">' + (r.p.number !== '' ? '#' + esc(r.p.number) : '') + '</span><span class="pname">' + esc(r.p.name) + '</span></td>' +
-    SEASON_COLS.map(c => '<td>' + (c.k === 'pts' ? '<b>' + colText(c, r, perGame) + '</b>' : colText(c, r, perGame)) + '</td>').join('') + '</tr>').join('');
+    cols.map(c => '<td>' + (c.k === 'pts' ? '<b>' + colText(c, r, perGame) + '</b>' : colText(c, r, perGame)) + '</td>').join('') + '</tr>').join('');
   const nGames = gamesWithStats().length;
   return '<div class="tiles">' +
-    '<div class="tile"><div class="label">Record</div><div class="value">' + rec.w + '–' + rec.l + '</div><div class="sub">' + rec.n + ' final game' + (rec.n === 1 ? '' : 's') + '</div></div>' +
-    '<div class="tile"><div class="label">Points / game</div><div class="value">' + rec.ppg + '</div><div class="sub">Allowed ' + rec.oppg + '</div></div>' +
+    (canSeeGroup('scoring') ? '<div class="tile"><div class="label">Record</div><div class="value">' + rec.w + '–' + rec.l + '</div><div class="sub">' + rec.n + ' final game' + (rec.n === 1 ? '' : 's') + '</div></div>' +
+      '<div class="tile"><div class="label">Points / game</div><div class="value">' + rec.ppg + '</div><div class="sub">Allowed ' + rec.oppg + '</div></div>' : '') +
     leaders + '</div>' +
     '<div class="card"><div class="row wrap-row" style="margin-bottom:8px"><h2 style="margin:0;flex:1">Player stats</h2>' +
     '<div class="seg"><button class="' + (perGame ? 'on' : '') + '" data-act="seasonMode" data-m="avg">Per game</button><button class="' + (!perGame ? 'on' : '') + '" data-act="seasonMode" data-m="tot">Totals</button></div></div>' +
@@ -889,19 +927,20 @@ function oppComparison() {
   });
   const n = games.length, a = line(us), o = line(them);
   const rows = [
-    ['Points', avg(usPts, n), avg(themPts, n)],
-    ['FG%', pct(a.fgm, a.fga), pct(o.fgm, o.fga)],
-    ['3P%', pct(a.FG3M, a.FG3A), pct(o.FG3M, o.FG3A)],
-    ['3PM', avg(a.FG3M, n), avg(o.FG3M, n)],
-    ['FT%', pct(a.FTM, a.FTA), pct(o.FTM, o.FTA)],
-    ['FTA', avg(a.FTA, n), avg(o.FTA, n)],
-    ['Rebounds', avg(a.REB, n), avg(o.REB, n)],
-    ['Assists', avg(a.AST, n), avg(o.AST, n)],
-    ['Steals', avg(a.STL, n), avg(o.STL, n)],
-    ['Blocks', avg(a.BLK, n), avg(o.BLK, n)],
-    ['Turnovers', avg(a.TO, n), avg(o.TO, n)],
-    ['Fouls', avg(a.PF, n), avg(o.PF, n)],
-  ];
+    ['Points', avg(usPts, n), avg(themPts, n), 'scoring'],
+    ['FG%', pct(a.fgm, a.fga), pct(o.fgm, o.fga), 'scoring'],
+    ['3P%', pct(a.FG3M, a.FG3A), pct(o.FG3M, o.FG3A), 'scoring'],
+    ['3PM', avg(a.FG3M, n), avg(o.FG3M, n), 'scoring'],
+    ['FT%', pct(a.FTM, a.FTA), pct(o.FTM, o.FTA), 'scoring'],
+    ['FTA', avg(a.FTA, n), avg(o.FTA, n), 'scoring'],
+    ['Rebounds', avg(a.REB, n), avg(o.REB, n), 'reb'],
+    ['Assists', avg(a.AST, n), avg(o.AST, n), 'ast'],
+    ['Steals', avg(a.STL, n), avg(o.STL, n), 'stl'],
+    ['Blocks', avg(a.BLK, n), avg(o.BLK, n), 'blk'],
+    ['Turnovers', avg(a.TO, n), avg(o.TO, n), 'to'],
+    ['Fouls', avg(a.PF, n), avg(o.PF, n), 'pf'],
+  ].filter(r => canSeeGroup(r[3]));
+  if (!rows.length) return '';
   return '<div class="card"><h2>Us vs. opponents</h2><p class="muted small" style="margin-top:0">Per game, from the ' + n + ' game' + (n === 1 ? '' : 's') + ' where opponent stats were kept.</p>' +
     '<div class="table-wrap"><table><thead><tr><th>Per game</th><th>' + esc(shortTeam()) + '</th><th>Opponents</th></tr></thead><tbody>' +
     rows.map(r => '<tr><td>' + r[0] + '</td><td><b>' + r[1] + '</b></td><td>' + r[2] + '</td></tr>').join('') + '</tbody></table></div></div>';
@@ -915,8 +954,7 @@ function viewPlayer() {
   let tot = {};
   games.forEach(g => { tot = addLine(tot, d.boxes[g.id][p.id]); });
   const l = line(tot), gp = games.length;
-  const tiles = [['PPG', avg(l.pts, gp)], ['RPG', avg(l.REB, gp)], ['APG', avg(l.AST, gp)], ['SPG', avg(l.STL, gp)], ['FG%', pct(l.fgm, l.fga)], ['3P%', pct(l.FG3M, l.FG3A)], ['FT%', pct(l.FTM, l.FTA)], ['TO/G', avg(l.TO, gp)]]
-    .map(([k, v]) => '<div class="tile"><div class="label">' + k + '</div><div class="value">' + v + '</div></div>').join('');
+  const tiles = statTiles(l, gp, ['PPG', 'RPG', 'APG', 'SPG', 'FG%', '3P%', 'FT%', 'TO/G']);
   const rows = games.slice().reverse().map(g => {
     const gl = line(d.boxes[g.id][p.id]);
     return '<tr class="click" data-act="openBox" data-id="' + esc(g.id) + '"><td>' + esc(fmtDate(g.date)) + ' <span class="muted">' + esc(gameTitle(g)) + '</span></td>' + boxCells(gl) + '</tr>';
@@ -924,7 +962,7 @@ function viewPlayer() {
   return topBar(playerLabel(p), '<button class="link" data-act="back">‹ Back</button>', '') +
     '<div class="wrap"><div class="tiles">' + tiles + '</div>' +
     '<div class="card"><h2>Game log</h2><p class="muted small" style="margin-top:0">' + gp + ' game' + (gp === 1 ? '' : 's') + ' played · ' + l.pts + ' points total</p>' +
-    '<div class="table-wrap"><table><thead><tr><th>Game</th><th>PTS</th><th>FG</th><th>FG%</th><th>3P</th><th>FT</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TO</th><th>PF</th></tr></thead><tbody>' +
+    '<div class="table-wrap"><table><thead><tr><th>Game</th>' + boxHead() + '</tr></thead><tbody>' +
     (rows || '<tr><td colspan="12" class="muted">No games yet</td></tr>') +
     (gp ? '<tr class="total"><td>Season</td>' + boxCells(l) + '</tr>' : '') +
     '</tbody></table></div></div></div>';
@@ -943,11 +981,12 @@ function viewGames() {
   const card = g => {
     const box = d.boxes[g.id] || {};
     const us = teamPts(box), them = oppPts(box);
-    const result = g.status === 'final' ? (us > them ? '<span class="chip win">W</span>' : us < them ? '<span class="chip loss">L</span>' : '<span class="chip">T</span>') : statusChip(g.status);
-    const scorer = g.scorerId ? parentName(g.scorerId) : '';
+    const showScore = canSeeGroup('scoring');
+    const result = g.status === 'final' && showScore ? (us > them ? '<span class="chip win">W</span>' : us < them ? '<span class="chip loss">L</span>' : '<span class="chip">T</span>') : statusChip(g.status);
+    const scorer = (g.scorerIds || []).map(parentName).filter(Boolean).join(', ');
     return '<div class="card"><div class="row"><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:17px">' + esc(gameTitle(g)) + '</div>' +
       '<div class="muted small">' + esc(fmtDate(g.date)) + ' · Stats: ' + (scorer ? esc(scorer) : '<b>no parent assigned</b>') + '</div></div>' +
-      '<div style="text-align:right">' + result + (g.status !== 'scheduled' ? '<div style="font-weight:800;font-size:18px;margin-top:2px">' + us + '–' + them + '</div>' : '') + '</div></div>' +
+      '<div style="text-align:right">' + result + (g.status !== 'scheduled' && showScore ? '<div style="font-weight:800;font-size:18px;margin-top:2px">' + us + '–' + them + '</div>' : '') + '</div></div>' +
       '<div class="row wrap-row" style="margin-top:10px">' +
       (canTrackGame(g) ? '<button class="btn sm primary" data-act="openGame" data-id="' + esc(g.id) + '">Track</button>' : '') +
       (g.status !== 'final' && S.me.players && S.me.players.length ? '<button class="btn sm" data-act="openPersonal" data-id="' + esc(g.id) + '">Track my player</button>' : '') +
@@ -975,17 +1014,31 @@ function viewRoster() {
     '<p class="muted small">To change your coach PIN, edit <b>Coach PIN</b> on the Settings tab of the spreadsheet.</p></form></div>');
 }
 
-const PERM_INFO = [
-  ['trackAny', 'Keep stats for any game', 'Not just the games you assign them.'],
-  ['fixStats', 'Fix box score numbers', 'Use − / + in the box score. Anyone can always undo their own taps.'],
-  ['viewStats', 'See season stats (read only)', 'Season table, player game logs, and every box score. Never PINs.'],
-  ['manage', 'Assistant coach', 'Add and edit players and games, assign stat keepers, fix any game. Cannot see PINs or change access.'],
-  ['viewOwn', "See their players' stats", 'Read-only official stats (season averages and game log) for the players checked below. Nothing about other players.'],
+// Stat groups the coach can allow per person (same keys as the server's STAT_GROUPS).
+const GROUPS = [
+  ['scoring', 'Points & shooting', '2PT, 3PT, free throws'],
+  ['reb', 'Rebounds'], ['ast', 'Assists'], ['stl', 'Steals'], ['blk', 'Blocks'], ['to', 'Turnovers'], ['pf', 'Fouls'],
+  ['opp', "Opponent's stats & score"],
 ];
+const VIEW_GROUP_KEYS = ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf'];
+const TRACK_GROUP_KEYS = VIEW_GROUP_KEYS.concat(['opp']);
+const groupName = k => (GROUPS.find(g => g[0] === k) || [k, k])[1];
+function groupListText(list, all) {
+  if (!list || list.length === all.length) return 'all stats';
+  if (!list.length) return 'no stats';
+  return list.map(groupName).join(', ');
+}
+// Plain-language lines for the Access list: what they do during games, and what they see after.
 function permSummary(p) {
-  const on = PERM_INFO.filter(([k]) => p.perms && p.perms[k] && (k !== 'viewOwn' || (p.players || []).length)).map(([, l]) => l);
+  const perms = p.perms || {};
+  if (perms.manage) return ['Assistant coach: edits roster & schedule, tracks any game, sees all stats.'];
   const players = (p.players || []).map(id => S.data.players.find(x => x.id === id)).filter(Boolean).map(x => x.name.split(' ')[0]);
-  return (players.length ? 'Tracks ' + players.join(', ') + ' · ' : '') + (on.length ? on.join(' · ') : 'Team stats for games you assign');
+  const lines = ['During games: ' + (perms.trackAny ? 'any game' : 'games you assign') + ' · ' + groupListText(perms.trackGroups, TRACK_GROUP_KEYS) +
+    (perms.fixStats ? ' · can fix numbers' : '')];
+  if (players.length) lines.push('Own record of: ' + players.join(', '));
+  const what = groupListText(perms.viewGroups, VIEW_GROUP_KEYS);
+  lines.push('After games: ' + (perms.viewStats ? 'sees whole team (' + what + ')' : perms.viewOwn && players.length ? 'sees ' + players.join(' & ') + ' only (' + what + ')' : 'sees nothing'));
+  return lines;
 }
 function fmtPhone(ph) {
   const m = /^\+?1?(\d{3})(\d{3})(\d{4})$/.exec(ph || '');
@@ -995,18 +1048,19 @@ function viewParents() {
   const d = S.data;
   const toEmail = d.parents.filter(p => p.active && p.email && !p.invited);
   const ps = d.parents.slice().sort((a, b) => a.name.localeCompare(b.name));
-  const count = id => d.games.filter(g => g.scorerId === id && g.status !== 'final').length;
+  const count = id => d.games.filter(g => (g.scorerIds || []).indexOf(id) >= 0 && g.status !== 'final').length;
   const item = p => '<div class="list-item"><div class="grow"><div style="font-weight:600">' + esc(p.name) + (p.active ? '' : ' <span class="chip">off</span>') + '</div>' +
     '<div class="muted small">PIN <span class="pin">' + esc(p.pin) + '</span> · ' + count(p.id) + ' assigned game' + (count(p.id) === 1 ? '' : 's') + '</div>' +
-    '<div class="small" style="margin-top:2px">' + esc(permSummary(p)) + '</div>' +
+    permSummary(p).map(l => '<div class="small" style="margin-top:2px">' + esc(l) + '</div>').join('') +
     '<div class="small" style="margin-top:2px">' + (p.invited ? '<span class="chip win">Invited ' + esc(new Date(p.invited).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })) + '</span>' : '<span class="chip">Not invited yet</span>') +
     (p.email ? ' <span class="muted">' + esc(p.email) + '</span>' : '') + (p.phone ? ' <span class="muted">' + esc(fmtPhone(p.phone)) + '</span>' : '') + '</div></div>' +
     '<div class="row" style="flex-direction:column;gap:6px"><button class="btn sm primary" data-act="invite" data-id="' + esc(p.id) + '">Invite</button><button class="btn sm" data-act="editParent" data-id="' + esc(p.id) + '">Edit</button></div></div>';
   return '<div class="card"><h2>Who can do what</h2>' +
-    '<p class="small" style="margin-top:0">Everyone you add gets a 4-digit PIN. By default a person can <b>only keep stats for games you assign them</b>, and only until the game is final. ' +
-    'They never see season stats. Tap <b>Edit</b> on a person to give them more access, or to give them their own player(s) to track. ' +
-    'Tap <b>Invite</b> to email or text them the link, their PIN, and simple instructions.</p>' +
-    '<p class="small muted">Only you (the coach PIN) can see PINs, add or remove people, change access, delete games, or export to the spreadsheet.</p>' +
+    '<p class="small" style="margin-top:0"><b>You always see everything.</b> Everyone else gets only what you choose for them:</p>' +
+    '<ul class="small access-help"><li><b>During games:</b> which games they keep stats for, and which stats they enter. While a game is going, they see that game\'s live numbers.</li>' +
+    '<li><b>After games:</b> by default, <b>nothing</b>. You can let them see just their own player, or the whole team, and pick which stats.</li></ul>' +
+    '<p class="small">Tap <b>Edit</b> on a person to change this, or <b>Invite</b> to send them the link and their PIN.</p>' +
+    '<p class="small muted">PINs, phone numbers, emails, and these settings are only ever shown to you.</p>' +
     (d.appUrl ? '<div class="copybox"><input readonly value="' + esc(d.appUrl) + '" id="appUrl"><button class="btn sm" data-act="copyUrl">Copy link</button></div>' : '') + '</div>' +
     '<div class="row wrap-row" style="margin-top:14px"><span class="spacer"></span>' +
     (toEmail.length ? '<button class="btn" data-act="emailAll">Email invites (' + toEmail.length + ')</button>' : '') +
@@ -1031,15 +1085,17 @@ function playerForm(p) {
 
 function gameForm(g) {
   const d = S.data;
-  g = g || { id: '', date: todayISO(), opponent: '', location: 'home', scorerId: '', status: 'scheduled', notes: '', oppRoster: [] };
-  const parents = d.parents.filter(p => p.active || p.id === g.scorerId);
+  g = g || { id: '', date: todayISO(), opponent: '', location: 'home', scorerIds: [], status: 'scheduled', notes: '', oppRoster: [] };
+  const sc = g.scorerIds || [];
+  const parents = d.parents.filter(p => p.active || sc.indexOf(p.id) >= 0);
   openModal('<form data-form="game"><h2>' + (g.id ? 'Edit game' : 'New game') + '</h2>' +
     '<input type="hidden" name="id" value="' + esc(g.id) + '"><input type="hidden" name="status" value="' + esc(g.status) + '">' +
     '<label class="field">Opponent<input name="opponent" maxlength="60" required value="' + esc(g.opponent) + '" ' + (g.id ? '' : 'autofocus') + '></label>' +
     '<label class="field">Date<input type="date" name="date" required value="' + esc(g.date) + '"></label>' +
     '<label class="field">Location<select name="location">' + ['home', 'away', 'neutral'].map(l => '<option value="' + l + '" ' + (g.location === l ? 'selected' : '') + '>' + l[0].toUpperCase() + l.slice(1) + '</option>').join('') + '</select></label>' +
-    '<label class="field">Who keeps stats?<select name="scorerId"><option value="">Coach</option>' +
-    parents.map(p => '<option value="' + esc(p.id) + '" ' + (g.scorerId === p.id ? 'selected' : '') + '>' + esc(p.name) + '</option>').join('') + '</select></label>' +
+    '<div class="field" style="margin-top:12px"><b>Who keeps stats?</b><p class="muted small" style="margin:2px 0 0">Pick one parent for everything, or several to split the work (each enters the stats you chose for them on the Access tab). Leave all unchecked if you\'re keeping stats yourself.</p>' +
+    '<div class="player-checks">' + parents.map(p => '<label class="check"><input type="checkbox" name="sc" value="' + esc(p.id) + '"' + (sc.indexOf(p.id) >= 0 ? ' checked' : '') + '><span>' + esc(p.name) +
+      '<span class="muted small">' + esc(groupListText((p.perms || {}).trackGroups, TRACK_GROUP_KEYS)) + '</span></span></label>').join('') + '</div></div>' +
     (parents.length ? '' : '<div class="note">Add parents on the Parents tab to assign them games.</div>') +
     '<label class="field">Opponent jersey numbers <span class="muted small">(optional)</span><textarea name="oppRoster" rows="3" placeholder="4 Smith, 12, 23 Jones">' + esc((g.oppRoster || []).map(p => (p.number + ' ' + p.name).trim()).join(', ')) + '</textarea></label>' +
     '<label class="field">Notes<input name="notes" maxlength="200" value="' + esc(g.notes) + '" placeholder="Optional"></label>' +
@@ -1052,7 +1108,15 @@ function parentForm(p) {
   p = p || { id: '', name: '', active: true, pin: '', perms: { fixStats: true }, players: [] };
   const perms = p.perms || {};
   const mine = p.players || [];
+  const tg = perms.trackGroups || TRACK_GROUP_KEYS, vg = perms.viewGroups || VIEW_GROUP_KEYS;
+  const see = perms.viewStats ? 'team' : perms.viewOwn ? 'own' : 'none';
   const roster = S.data.players.filter(x => x.active || mine.indexOf(x.id) >= 0).slice().sort(byNumber);
+  const radio = (name, value, checked, title, desc) => '<label class="check choice"><input type="radio" name="' + name + '" value="' + value + '"' + (checked ? ' checked' : '') + '><span>' + title +
+    (desc ? '<span class="muted small">' + desc + '</span>' : '') + '</span></label>';
+  const groupChecks = (name, keys, on) => '<div class="group-checks">' + keys.map(k => {
+    const g = GROUPS.find(x => x[0] === k);
+    return '<label class="check"><input type="checkbox" name="' + name + '" value="' + k + '"' + (on.indexOf(k) >= 0 ? ' checked' : '') + '><span>' + g[1] + (g[2] ? '<span class="muted small">' + g[2] + '</span>' : '') + '</span></label>';
+  }).join('') + '</div><div class="row" style="gap:6px"><button type="button" class="btn sm" data-act="checkAll" data-name="' + name + '" data-on="1">All</button><button type="button" class="btn sm" data-act="checkAll" data-name="' + name + '" data-on="">None</button></div>';
   openModal('<form data-form="parent"><h2>' + (p.id ? 'Edit person' : 'Add person') + '</h2>' +
     '<input type="hidden" name="id" value="' + esc(p.id) + '">' +
     '<label class="field">Name<input name="name" maxlength="60" required value="' + esc(p.name) + '" ' + (p.id ? '' : 'autofocus') + ' placeholder="e.g. Jamie (Ava\'s mom)"></label>' +
@@ -1060,11 +1124,32 @@ function parentForm(p) {
     '<label class="field">Cell phone <span class="muted small">(optional, to text their invite)</span><input type="tel" name="phone" maxlength="20" value="' + esc(p.phone || '') + '" placeholder="(555) 123-4567" autocomplete="off"></label>' +
     (p.id ? '<p>PIN <span class="pin">' + esc(p.pin) + '</span></p><label class="check"><input type="checkbox" name="newPin"> Give them a new PIN (old one stops working)</label>' +
       '<label class="check"><input type="checkbox" name="active" ' + (p.active ? 'checked' : '') + '> Can sign in</label>' : '<p class="muted small">A 4-digit PIN is created automatically.</p>') +
-    '<div class="section-title" style="margin-top:14px">Access</div><p class="small" style="margin:4px 0 0">Always: keep stats for games you assign them.</p>' +
-    PERM_INFO.map(([k, l, desc]) => '<label class="check" style="align-items:flex-start"><input type="checkbox" name="perm_' + k + '" ' + (perms[k] ? 'checked' : '') + '><span>' + l + '<span class="muted small" style="display:block;font-weight:400">' + desc + '</span></span></label>').join('') +
-    '<div class="section-title" style="margin-top:14px">Their players (optional)</div>' +
-    '<p class="small" style="margin:4px 0 0">They can keep their own record of these players in any game. It goes to you for comparison and <b>never changes the official stats</b> kept by the team scorer.</p>' +
+
+    '<div class="access-step"><div class="step-title"><span class="step-num">1</span> During games: what do they track?</div>' +
+    '<div class="step-label">Which games</div>' +
+    radio('games', 'assigned', !perms.trackAny, 'Only games I assign them', 'You pick them on each game (Games tab → Edit).') +
+    radio('games', 'any', !!perms.trackAny, 'Any game that isn\'t over', 'Good for a backup stat keeper.') +
+    '<div class="step-label">Which stats they enter</div>' +
+    '<p class="muted small" style="margin:0">To split a game, assign several parents and give each different stats.</p>' +
+    groupChecks('tg', TRACK_GROUP_KEYS, tg) +
+    '<label class="check choice"><input type="checkbox" name="fixStats"' + (perms.fixStats ? ' checked' : '') + '><span>Can fix numbers in the box score<span class="muted small">Using − / +. Undoing their own taps always works.</span></span></label>' +
+    '<div class="step-label">Their own player(s) (optional)</div>' +
+    '<p class="muted small" style="margin:0">They can keep a separate record of these players at any game. It\'s shown to you for comparison and <b>never changes the official stats</b>.</p>' +
     '<div class="player-checks">' + roster.map(x => '<label class="check"><input type="checkbox" name="pl" value="' + esc(x.id) + '" ' + (mine.indexOf(x.id) >= 0 ? 'checked' : '') + '> ' + esc(playerLabel(x)) + '</label>').join('') + '</div>' +
+    '</div>' +
+
+    '<div class="access-step"><div class="step-title"><span class="step-num">2</span> After games: what can they see?</div>' +
+    radio('see', 'none', see === 'none', 'Nothing <span class="chip">recommended</span>', 'They enter stats, then the game closes on their phone. Only you see the results.') +
+    radio('see', 'own', see === 'own', 'Only their own player(s)', 'The official stats for the players checked above, nobody else.') +
+    radio('see', 'team', see === 'team', 'The whole team', 'Season stats, player game logs, and every box score (read only).') +
+    '<div class="view-groups"><div class="step-label">Which stats they can see</div>' +
+    groupChecks('vg', VIEW_GROUP_KEYS, vg) + '</div>' +
+    '</div>' +
+
+    '<details class="access-step"' + (perms.manage ? ' open' : '') + '><summary class="step-title" style="cursor:pointer">Advanced</summary>' +
+    '<label class="check choice"><input type="checkbox" name="manage"' + (perms.manage ? ' checked' : '') + '><span>Assistant coach<span class="muted small">Can edit the roster and schedule, assign stat keepers, track or fix any game, and <b>see all stats</b> (this overrides the choices above). Never sees PINs or this screen.</span></span></label>' +
+    '</details>' +
+
     '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Save</button></div>' +
     (p.id ? '<button type="button" class="btn danger big" style="margin-top:10px" data-act="deleteParent" data-id="' + esc(p.id) + '">Remove person</button>' : '') +
     '</form>');
@@ -1122,7 +1207,7 @@ function lineEditor(playerId, scope) {
   if (scope === undefined) scope = (modalState && modalState.editor === playerId) ? modalState.scope : (t.mode ? 0 : t.period || 1);
   const game = line(t.box[playerId]);
   const inScope = scope ? line(((t.periodBoxes || {})[scope] || {})[playerId]) : game;
-  const keys = isOpp(playerId) ? BASE.filter(k => k !== 'GP') : BASE;
+  const keys = (isOpp(playerId) ? BASE.filter(k => k !== 'GP') : BASE).filter(k => k === 'GP' || canTrackGroup(STAT_GROUP[k]));
   const warn = [];
   if (game.FG2M > game.FG2A) warn.push('2PT made is more than attempts');
   if (game.FG3M > game.FG3A) warn.push('3PT made is more than attempts');
@@ -1166,10 +1251,13 @@ function inviteText(p) {
   const d = S.data;
   const team = d.settings.teamName;
   const players = (p.players || []).map(id => d.players.find(x => x.id === id)).filter(Boolean).map(x => x.name.split(' ')[0]);
-  const games = d.games.filter(g => g.scorerId === p.id && g.status !== 'final').sort((a, b) => a.date.localeCompare(b.date));
+  const games = d.games.filter(g => (g.scorerIds || []).indexOf(p.id) >= 0 && g.status !== 'final').sort((a, b) => a.date.localeCompare(b.date));
+  const tg = (p.perms || {}).trackGroups;
+  const limited = tg && tg.length < TRACK_GROUP_KEYS.length;
   const lines = ['Hi ' + p.name.split(' ')[0] + '! Thanks for helping with ' + team + ' stats.', '', 'App: ' + (d.appUrl || '(link)'), 'Your PIN: ' + p.pin, ''];
   if (games.length) lines.push('You\'re keeping team stats for: ' + games.slice(0, 3).map(g => fmtDate(g.date) + ' ' + gameTitle(g)).join('; ') + (games.length > 3 ? ' (and more)' : '') + '.');
   if (players.length) lines.push('You can also keep your own record of ' + players.join(' & ') + ' at any game.');
+  if (limited && tg.length) lines.push('You\'ll be entering: ' + tg.map(groupName).join(', ') + '.');
   lines.push('', 'How it works:', '1. Open the link and enter your PIN.',
     '2. Tap ' + (games.length ? '“Start tracking” on your game' : players.length ? '“Track ' + players.join(' & ') + '” on today\'s game' : 'your game') + '.',
     '3. Tap a player, then what happened (green = made, red = missed).',
@@ -1592,6 +1680,9 @@ const ACTS = {
     lineEditor(id);
     render();
   },
+  checkAll(el) {
+    el.closest('form').querySelectorAll('input[name=' + el.dataset.name + ']').forEach(i => { i.checked = !!el.dataset.on; });
+  },
   editScope(el) { lineEditor(el.dataset.id, Number(el.dataset.n)); },
   allPlays() { playsModal(); },
   async setStatus(el) {
@@ -1699,15 +1790,23 @@ const FORMS = {
     return coachSave('addPlayers', { list: list });
   },
   game(f) {
-    return coachSave('saveGame', { id: f.elements.id.value, date: f.elements.date.value, opponent: f.elements.opponent.value, location: f.elements.location.value, scorerId: f.elements.scorerId.value, status: f.elements.status.value, notes: f.elements.notes.value, oppRoster: f.elements.oppRoster.value });
+    return coachSave('saveGame', { id: f.elements.id.value, date: f.elements.date.value, opponent: f.elements.opponent.value, location: f.elements.location.value, scorerIds: Array.from(f.querySelectorAll('input[name=sc]:checked')).map(i => i.value), status: f.elements.status.value, notes: f.elements.notes.value, oppRoster: f.elements.oppRoster.value });
   },
   parent(f) {
-    const perms = {};
-    PERM_INFO.forEach(([k]) => { perms[k] = f.elements['perm_' + k].checked; });
-    const players = Array.from(f.querySelectorAll('input[name=pl]:checked')).map(i => i.value);
+    const checked = name => Array.from(f.querySelectorAll('input[name=' + name + ']:checked')).map(i => i.value);
+    const see = (f.querySelector('input[name=see]:checked') || {}).value || 'none';
+    const players = checked('pl');
+    if (see === 'own' && !players.length) return modalErr('To let them see their own player, check that player under "Their own player(s)".');
+    const perms = {
+      trackAny: (f.querySelector('input[name=games]:checked') || {}).value === 'any',
+      fixStats: f.elements.fixStats.checked,
+      viewStats: see === 'team',
+      viewOwn: see === 'own',
+      manage: f.elements.manage.checked,
+    };
     const isNew = !f.elements.id.value;
     const before = new Set(S.data.parents.map(p => p.id));
-    return coachSave('saveParent', { players: players, id: f.elements.id.value, name: f.elements.name.value, email: f.elements.email.value, phone: f.elements.phone.value, active: f.elements.active ? f.elements.active.checked : true, newPin: !!(f.elements.newPin && f.elements.newPin.checked), perms: perms })
+    return coachSave('saveParent', { players: players, id: f.elements.id.value, name: f.elements.name.value, email: f.elements.email.value, phone: f.elements.phone.value, active: f.elements.active ? f.elements.active.checked : true, newPin: !!(f.elements.newPin && f.elements.newPin.checked), perms: perms, trackGroups: checked('tg'), viewGroups: checked('vg') })
       .then(ok => {
         // New person with contact info: go straight to sending their invite.
         const added = ok && isNew && S.data.parents.find(p => !before.has(p.id));

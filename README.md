@@ -71,20 +71,31 @@ Paste in the new code, then click **Deploy → Manage deployments → ✏️ Edi
 3. **Games tab:** add each game (opponent, date, home/away), or tap **Add many** and paste your schedule, one game per line (`11/10 Louisiana School for the Deaf, home`, `12/8 @ Dodson`, `1/4 Hicks, neutral, Tournament`). Under **Who keeps stats?** pick the parent, or leave it as *Coach*. You can also type the opponent's jersey numbers here if you know them.
 
 ### Access levels
-Everyone you add can **keep stats for the games you assign them** until that game is final. Tick any extras per person:
+**You (the coach PIN) always see everything.** For everyone else, tap **Edit** on the Access tab. The screen has two numbered steps:
 
-| Switch | What it allows |
-| --- | --- |
-| Keep stats for any game | Track any game that isn't final, not just assigned ones (good for a backup scorekeeper) |
-| Fix box score numbers | Use − / + in the box score. Undoing their own taps is always allowed. *On by default.* |
-| See season stats (read only) | Season table, player game logs, every box score, and the opponent comparison. No editing. |
-| Assistant coach | Add/edit players and games, assign stat keepers, track or fix any game (including final ones) |
-| See their players' stats | Read-only official stats (season averages and game log) for the players assigned to them, and nobody else |
+**1. During games: what do they track?**
+- **Which games:** only games you assign them (Games tab → Edit → *Who keeps stats?*), or any game that isn't over.
+- **Which stats they enter:** points & shooting, rebounds, assists, steals, blocks, turnovers, fouls, and the opponent's stats & score. Their tracker only shows those buttons, and the server refuses anything else.
+  To **split a game**, tick several parents under *Who keeps stats?* and give each one different stats (e.g. one does scoring, another rebounds/assists/steals).
+- **Can fix numbers in the box score** (− / +). Undoing their own taps always works.
+- **Their own player(s):** a separate personal record that never changes the official stats.
+
+While a game is going, anyone tracking it sees that game's live numbers.
+
+**2. After games: what can they see?**
+- **Nothing** (the default, recommended): they enter stats, the game closes on their phone, and only you see the results.
+- **Only their own player(s):** official stats for the players ticked in step 1.
+- **The whole team:** season stats, player game logs, and every box score (read only).
+- **Which stats they can see:** e.g. rebounds and assists only. Everything else is hidden, and the server never sends it to them.
+
+**Advanced → Assistant coach:** edit roster and schedule, track or fix any game, and see all stats. Never sees PINs, contact info, or the Access screen.
+
+Only you can see PINs, phone numbers, emails, and access settings, add or remove people, delete games, or export to the spreadsheet.
 
 ### Parents who follow one player
 On the Access tab, tap **Edit** on a parent and tick their player(s) under **Their players**. They can then keep **their own record** of those players at any game, even while another parent keeps the team stats.
 - Their record is **kept separately and never changes the official stats.** You'll see it under **Parent records** in that game's box score, with any numbers that differ from the official stats highlighted.
-- Turn on **See their players' stats** if you want them to be able to look up their player's official numbers.
+- In step 2, choose **Only their own player(s)** if you want them to be able to look up their player's official numbers.
 
 ### Inviting parents
 Add a parent's **email** and/or **cell number** when you add them (Access → + Add person), and their invite opens right away:
@@ -112,7 +123,7 @@ Want a shorter link? Make a free one at [tinyurl.com](https://tinyurl.com) with 
 7. Open **Box score** and tap any player to fix a number with − / +. The opponent has its own box score below yours. Use **Game / Q1–Q4 / OT** at the top of the box score to see one quarter or overtime on its own. When fixing, pick **which quarter** the correction belongs to (it starts on the current quarter).
 8. When the game ends, tap **Game over: submit final stats** at the bottom of the Track screen (the coach sees **End game (mark final)**). The game then closes on the parent's phone.
 
-### Reviewing (Coach, and anyone with *See season stats*)
+### Reviewing (Coach, and anyone you let see the whole team)
 - **Season tab:** record, scoring, leaders, and the full player table. Switch between **Per game** and **Totals**, tap a column to sort, and tap a player for their game log. **Us vs. opponents** compares shooting, rebounds, turnovers, etc. per game, using only games where opponent stats were kept.
 - **Games tab:** each game's score and result. **Box score** lets you correct anything, even after a game is final. **Edit** changes the date, opponent, or assigned parent.
 - **Update stats in Google Sheet** writes **Season Stats** and **Game Log** tabs in your spreadsheet for sorting, charts, or printing.

@@ -47,7 +47,7 @@ test('parents get a PIN, can sign in, and are not allowed coach actions', () => 
   assert.match(pat.pin, /^[1-9]\d{3}$/);
   assert.deepEqual(t.call(pat.pin, 'me'), {
     role: 'scorer', id: pat.id, name: 'Pat Parent', teamName: 'My Team',
-    perms: { trackAny: false, fixStats: true, viewStats: false, manage: false, viewOwn: false },
+    perms: { trackAny: false, fixStats: true, viewStats: false, manage: false, viewOwn: false, trackGroups: ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf', 'opp'], viewGroups: ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf'] },
     players: [],
   });
   assert.throws(() => t.call(pat.pin, 'all'), /Only the coach/);
@@ -129,7 +129,7 @@ test('removing a parent unassigns their games and their PIN stops working', () =
   const t = setup();
   const { pat, g1 } = seed(t);
   const all = t.coach('deleteParent', { id: pat.id });
-  assert.equal(all.games.find(g => g.id === g1.id).scorerId, '');
+  assert.deepEqual(all.games.find(g => g.id === g1.id).scorerIds, []);
   assert.throws(() => t.call(pat.pin, 'me'), /AUTH/);
 });
 
@@ -234,11 +234,11 @@ test('older spreadsheets get the new columns added', () => {
   const again = createGas();
   for (const k of Object.keys(gas.sheets)) again.sheets[k] = gas.sheets[k];
   again.context.setup();
-  assert.deepEqual(gas.sheets.Parents.data[0].slice(4), ['Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players', 'Email', 'Phone', 'Invited']);
+  assert.deepEqual(gas.sheets.Parents.data[0].slice(4), ['Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players', 'Email', 'Phone', 'Invited', 'Track Stats', 'See Stats']);
   assert.equal(gas.sheets.Events.data[0][7], 'Book');
   assert.equal(gas.sheets.Games.data[0][7], 'Opp Roster');
   const me = again.api({ pin: '5555', action: 'me' });
-  assert.deepEqual(me.perms, { trackAny: false, fixStats: true, viewStats: false, manage: false, viewOwn: false });
+  assert.deepEqual(me.perms, { trackAny: false, fixStats: true, viewStats: false, manage: false, viewOwn: false, trackGroups: ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf', 'opp'], viewGroups: ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf'] });
 });
 
 test('coach can add many games at once', () => {
@@ -446,4 +446,61 @@ test('plays record their quarter; the box score gets scoring and team fouls by q
   assert.equal(g.box[ben.id].REB, 1, 'play with a bad period still counts');
   // Sum by quarter matches the box score total.
   assert.equal(2 + 1, 2 * (g.box[ava.id].FG2M || 0) + 3 * (g.box[ava.id].FG3M || 0) + (g.box[ben.id].FTM || 0));
+});
+
+test('coach chooses which stats each parent can enter', () => {
+  const t = setup();
+  const { pat, sam, g1, ava, ben } = seed(t);
+  // Pat: rebounds and assists only, no opponent stats. Sam also keeps stats for game 1 (split the work).
+  t.coach('saveParent', { id: pat.id, name: pat.name, trackGroups: ['reb', 'ast'] });
+  const all = t.coach('saveGame', { ...t.coach('all').games.find(g => g.id === g1.id), scorerIds: [pat.id, sam.id] });
+  assert.deepEqual(all.games.find(g => g.id === g1.id).scorerIds, [pat.id, sam.id]);
+  assert.equal(t.gas.sheets.Parents.data.find(r => r[0] === pat.id)[13], 'reb,ast');
+
+  assert.equal(t.call(pat.pin, 'me').perms.trackGroups.join(), 'reb,ast');
+  assert.equal(t.call(pat.pin, 'record', { gameId: g1.id, events: [ev(ava.id, 'REB'), ev(ben.id, 'AST'), ev(ava.id, 'GP')] }).saved, 3);
+  assert.throws(() => t.call(pat.pin, 'record', { gameId: g1.id, events: [ev(ava.id, 'FG2M')] }), /not set up to enter/);
+  assert.throws(() => t.call(pat.pin, 'record', { gameId: g1.id, events: [ev('', 'OPP', 2)] }), /not set up to enter/);
+  assert.throws(() => t.call(pat.pin, 'record', { gameId: g1.id, events: [ev('opp:4', 'REB')] }), /not set up to enter/);
+  // Sam (all stats by default) keeps scoring in the same game.
+  assert.equal(t.call(sam.pin, 'record', { gameId: g1.id, events: [ev(ava.id, 'FG2M'), ev(ava.id, 'FG2A'), ev('', 'OPP', 2)] }).saved, 3);
+  // Both see the same live game while tracking it.
+  assert.equal(t.call(pat.pin, 'game', { gameId: g1.id }).box[ava.id].FG2M, 1);
+
+  // Nothing allowed = can't enter anything except who's playing.
+  t.coach('saveParent', { id: pat.id, name: pat.name, trackGroups: [] });
+  assert.equal(t.gas.sheets.Parents.data.find(r => r[0] === pat.id)[13], '-');
+  assert.deepEqual(t.call(pat.pin, 'me').perms.trackGroups, []);
+  assert.throws(() => t.call(pat.pin, 'record', { gameId: g1.id, events: [ev(ava.id, 'REB')] }), /not set up/);
+
+  // Removing a parent takes them off the game but keeps the other stat keeper.
+  const after = t.coach('deleteParent', { id: pat.id });
+  assert.deepEqual(after.games.find(g => g.id === g1.id).scorerIds, [sam.id]);
+});
+
+test('team stat keepers cannot see stats after the game unless the coach allows it', () => {
+  const t = setup();
+  const { pat, sam, g1, ava } = seed(t);
+  t.call(pat.pin, 'record', { gameId: g1.id, events: [ev(ava.id, 'FG2M'), ev(ava.id, 'FG2A'), ev(ava.id, 'REB'), ev(ava.id, 'STL'), ev('', 'OPP', 3)].map(e => ({ ...e, period: 1 })) });
+  t.call(pat.pin, 'setStatus', { gameId: g1.id, status: 'final' });
+  // Default: nothing afterwards.
+  assert.throws(() => t.call(pat.pin, 'game', { gameId: g1.id }), /final/);
+  assert.throws(() => t.call(pat.pin, 'all'), /Only the coach/);
+
+  // Sam may see the whole team, but only rebounds and steals.
+  t.coach('saveParent', { id: sam.id, name: sam.name, perms: { viewStats: true }, viewGroups: ['reb', 'stl'] });
+  const seen = t.call(sam.pin, 'all');
+  assert.deepEqual(seen.boxes[g1.id][ava.id], { REB: 1, STL: 1 });
+  assert.equal(seen.boxes[g1.id]._team, undefined, 'no opponent score without scoring');
+  const game = t.call(sam.pin, 'game', { gameId: g1.id });
+  assert.deepEqual(game.box[ava.id], { REB: 1, STL: 1 });
+  assert.deepEqual(game.periods[1], {});
+  assert.deepEqual(game.periodBoxes[1][ava.id], { REB: 1, STL: 1 });
+
+  // Coach always sees everything.
+  assert.deepEqual(t.coach('all').boxes[g1.id][ava.id], { FG2M: 1, FG2A: 1, REB: 1, STL: 1 });
+
+  // Own-player viewers are filtered the same way.
+  t.coach('saveParent', { id: sam.id, name: sam.name, players: [ava.id], perms: { viewOwn: true }, viewGroups: ['scoring'] });
+  assert.deepEqual(t.call(sam.pin, 'scorerHome').myStats[0].box[ava.id], { FG2M: 1, FG2A: 1 });
 });
