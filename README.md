@@ -113,7 +113,7 @@ Want a shorter link? Make a free one at [tinyurl.com](https://tinyurl.com) with 
 1. Open the link and enter your PIN. Your assigned game appears. Tap **Start tracking**.
 2. Uncheck anyone who isn't playing today.
 3. For each play: **tap the player, then the stat**. You can also tap the stat first, then the player.
-   - Green = made shot, red = missed shot. A made shot also counts as an attempt.
+   - Green = made shot, red = missed shot. A made shot also counts as an attempt. Rebounds are **O-REB** (offensive) or **D-REB** (defensive).
    - Use **+1 / +2 / +3** under the opponent's score to keep their points.
    - Tapped the wrong thing? Hit **UNDO** on the pop-up, or **Undo** next to the play in *Recent plays*. **All plays this game** lists every play entered on that phone, grouped by quarter, each with Undo, so you can fix a mistake from an earlier quarter.
    - Player tiles show points and fouls. Fouls turn orange at 4 and red at 5.

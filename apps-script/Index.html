@@ -156,6 +156,7 @@ label.check input { width: 22px; height: 22px; flex: none; }
 .pad { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
 .sbtn { border-radius: 12px; min-height: 58px; font-weight: 800; font-size: 16px; background: var(--card); border: 2px solid var(--line); line-height: 1.1; }
 .sbtn small { display: block; font-size: 11px; font-weight: 700; opacity: .8; letter-spacing: .04em; }
+.pad .sbtn:last-child:nth-child(4n+1) { grid-column: span 4; }
 .sbtn.make { background: var(--good-bg); border-color: #9fd8bd; color: var(--good); }
 .sbtn.miss { background: var(--bad-bg); border-color: #efb4ad; color: var(--bad); }
 .sbtn.armed { outline: 3px solid var(--accent); outline-offset: 1px; background: var(--sel); color: var(--ink); }
@@ -257,10 +258,11 @@ function normErr(err) {
 // ===========================================================================
 // Stat math
 // ===========================================================================
-const BASE = ['GP', 'FG2M', 'FG2A', 'FG3M', 'FG3A', 'FTM', 'FTA', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PF'];
+// REB = rebounds entered before offensive/defensive were split; line().REB is the total of all three.
+const BASE = ['GP', 'FG2M', 'FG2A', 'FG3M', 'FG3A', 'FTM', 'FTA', 'OREB', 'DREB', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PF'];
 const BASE_LABELS = {
   GP: 'Played (1 = yes)', FG2M: '2PT made', FG2A: '2PT attempts', FG3M: '3PT made', FG3A: '3PT attempts',
-  FTM: 'Free throws made', FTA: 'Free throw attempts', REB: 'Rebounds', AST: 'Assists', STL: 'Steals',
+  FTM: 'Free throws made', FTA: 'Free throw attempts', OREB: 'Offensive rebounds', DREB: 'Defensive rebounds', REB: 'Rebounds (not split)', AST: 'Assists', STL: 'Steals',
   BLK: 'Blocks', TO: 'Turnovers', PF: 'Fouls',
 };
 // What each tracker button records.
@@ -271,6 +273,8 @@ const TAPS = {
   '3X': { label: '3PT miss', ev: [['FG3A', 1]] },
   'FM': { label: 'Free throw made', ev: [['FTM', 1], ['FTA', 1]] },
   'FX': { label: 'Free throw miss', ev: [['FTA', 1]] },
+  'OREB': { label: 'Off. rebound', ev: [['OREB', 1]] },
+  'DREB': { label: 'Def. rebound', ev: [['DREB', 1]] },
   'REB': { label: 'Rebound', ev: [['REB', 1]] },
   'AST': { label: 'Assist', ev: [['AST', 1]] },
   'STL': { label: 'Steal', ev: [['STL', 1]] },
@@ -284,6 +288,8 @@ function line(s) {
   s = s || {};
   const o = {};
   BASE.forEach(k => { o[k] = n0(s[k]); });
+  o.rebRaw = o.REB;
+  o.REB = o.rebRaw + o.OREB + o.DREB;
   o.pts = 2 * o.FG2M + 3 * o.FG3M + o.FTM;
   o.fgm = o.FG2M + o.FG3M;
   o.fga = o.FG2A + o.FG3A;
@@ -346,8 +352,8 @@ function canSeeGroup(g) {
   if (fullAccess() || (S.view === 'game' && S.t && S.t.canTrack)) return true;
   return ((S.me.perms || {}).viewGroups || VIEW_GROUP_KEYS).indexOf(g) >= 0;
 }
-const STAT_GROUP = { FG2M: 'scoring', FG2A: 'scoring', FG3M: 'scoring', FG3A: 'scoring', FTM: 'scoring', FTA: 'scoring', REB: 'reb', AST: 'ast', STL: 'stl', BLK: 'blk', TO: 'to', PF: 'pf' };
-const TAP_GROUP = { '2M': 'scoring', '2X': 'scoring', '3M': 'scoring', '3X': 'scoring', 'FM': 'scoring', 'FX': 'scoring', REB: 'reb', AST: 'ast', STL: 'stl', BLK: 'blk', TO: 'to', PF: 'pf' };
+const STAT_GROUP = { FG2M: 'scoring', FG2A: 'scoring', FG3M: 'scoring', FG3A: 'scoring', FTM: 'scoring', FTA: 'scoring', REB: 'reb', OREB: 'reb', DREB: 'reb', AST: 'ast', STL: 'stl', BLK: 'blk', TO: 'to', PF: 'pf' };
+const TAP_GROUP = { '2M': 'scoring', '2X': 'scoring', '3M': 'scoring', '3X': 'scoring', 'FM': 'scoring', 'FX': 'scoring', REB: 'reb', OREB: 'reb', DREB: 'reb', AST: 'ast', STL: 'stl', BLK: 'blk', TO: 'to', PF: 'pf' };
 function canTrackGame(g) {
   if (can('manage')) return true;
   if (g.status === 'final') return false;
@@ -699,9 +705,10 @@ function viewTracker() {
   // Only the stat buttons this person is allowed to enter.
   const ok = code => canTrackGroup(TAP_GROUP[code]);
   const btns = [['2M', '2PT', 'MADE', 'make'], ['2X', '2PT', 'MISS', 'miss'], ['3M', '3PT', 'MADE', 'make'], ['3X', '3PT', 'MISS', 'miss'],
-    ['FM', 'FT', 'MADE', 'make'], ['FX', 'FT', 'MISS', 'miss'], ['REB', 'REB'], ['AST', 'AST'],
+    ['FM', 'FT', 'MADE', 'make'], ['FX', 'FT', 'MISS', 'miss'], ['OREB', 'O-REB', 'OFFENSE'], ['DREB', 'D-REB', 'DEFENSE'],
+    ['AST', 'AST'],
     ['STL', 'STL'], ['BLK', 'BLK'], ['TO', 'TO', 'TURNOVER'], ['PF', 'FOUL']].filter(x => ok(x[0]));
-  const limited = btns.length < 12;
+  const limited = btns.length < 13;
   const pad = (limited ? '<p class="muted small" style="text-align:center;margin:10px 0 0">You\'re entering: <b>' + esc(TRACK_GROUP_KEYS.filter(canTrackGroup).filter(g => g !== 'opp').map(groupName).join(', ') || 'no stats') + '</b></p>' : '') +
     (btns.length ? '<div class="pad">' + btns.map(x => b(x[0], x[1], x[2], x[3])).join('') + '</div>' : '<div class="card empty">The coach hasn\'t given you any stats to enter.</div>');
   const plays = t.plays.slice(0, 6);
@@ -746,7 +753,7 @@ function boxTable(players, box, clickable, opp) {
 const BOX_COLS = [
   ['PTS', 'scoring', l => '<b>' + l.pts + '</b>'], ['FG', 'scoring', l => l.fgm + '-' + l.fga], ['FG%', 'scoring', l => pct(l.fgm, l.fga)],
   ['3P', 'scoring', l => l.FG3M + '-' + l.FG3A], ['FT', 'scoring', l => l.FTM + '-' + l.FTA],
-  ['REB', 'reb', l => l.REB], ['AST', 'ast', l => l.AST], ['STL', 'stl', l => l.STL], ['BLK', 'blk', l => l.BLK], ['TO', 'to', l => l.TO], ['PF', 'pf', l => l.PF],
+  ['REB', 'reb', l => l.REB], ['OR', 'reb', l => l.OREB], ['DR', 'reb', l => l.DREB], ['AST', 'ast', l => l.AST], ['STL', 'stl', l => l.STL], ['BLK', 'blk', l => l.BLK], ['TO', 'to', l => l.TO], ['PF', 'pf', l => l.PF],
 ];
 const boxCols = () => BOX_COLS.filter(c => canSeeGroup(c[1]));
 function boxHead() { return boxCols().map(c => '<th>' + c[0] + '</th>').join(''); }
@@ -904,6 +911,8 @@ const SEASON_COLS = [
   { k: 'gp', l: 'GP', v: r => r.gp, raw: true },
   { k: 'pts', g: 'scoring', l: 'PTS', v: r => r.l.pts },
   { k: 'reb', g: 'reb', l: 'REB', v: r => r.l.REB },
+  { k: 'oreb', g: 'reb', l: 'OREB', v: r => r.l.OREB },
+  { k: 'dreb', g: 'reb', l: 'DREB', v: r => r.l.DREB },
   { k: 'ast', g: 'ast', l: 'AST', v: r => r.l.AST },
   { k: 'stl', g: 'stl', l: 'STL', v: r => r.l.STL },
   { k: 'blk', g: 'blk', l: 'BLK', v: r => r.l.BLK },
@@ -1254,7 +1263,8 @@ function lineEditor(playerId, scope) {
   if (scope === undefined) scope = (modalState && modalState.editor === playerId) ? modalState.scope : (t.mode ? 0 : t.period || 1);
   const game = line(t.box[playerId]);
   const inScope = scope ? line(((t.periodBoxes || {})[scope] || {})[playerId]) : game;
-  const keys = (isOpp(playerId) ? BASE.filter(k => k !== 'GP') : BASE).filter(k => k === 'GP' || canTrackGroup(STAT_GROUP[k]));
+  const keys = (isOpp(playerId) ? BASE.filter(k => k !== 'GP') : BASE).filter(k => k === 'GP' || canTrackGroup(STAT_GROUP[k]))
+    .filter(k => k !== 'REB' || line(t.box[playerId]).rebRaw > 0);
   const warn = [];
   if (game.FG2M > game.FG2A) warn.push('2PT made is more than attempts');
   if (game.FG3M > game.FG3A) warn.push('3PT made is more than attempts');
@@ -1268,13 +1278,15 @@ function lineEditor(playerId, scope) {
     scopeBar = '<div class="small" style="font-weight:700;margin-top:10px">Fix which quarter?</div><div class="seg box-filter">' +
       opts.map(([n, l]) => '<button class="' + (n === scope ? 'on' : '') + '" data-act="editScope" data-id="' + esc(playerId) + '" data-n="' + n + '">' + l + '</button>').join('') + '</div>';
   }
-  const val = k => (k === 'GP' ? game.GP : inScope[k]);
+  // Steppers change the stored counter itself (REB here = the old unsplit rebounds).
+  const raw = (src, k) => (k === 'REB' ? src.rebRaw : src[k]);
+  const val = k => (k === 'GP' ? game.GP : raw(inScope, k));
   openModal('<h2>' + esc(isOpp(playerId) ? t.game.opponent + ' ' + anyLabel(playerId).replace('Opp ', '') : playerLabel(p)) + '</h2>' +
     '<p class="muted small" style="margin-top:4px">' + game.pts + ' points this game. Changes save right away.</p>' +
     scopeBar +
     (scope ? '<p class="muted small" style="margin:0 0 4px">Numbers below are for <b>' + periodLabel(scope) + '</b>. Game totals are in grey.</p>'
       : (t.mode ? '' : '<p class="muted small" style="margin:0 0 4px">Changes count for the game but not toward any quarter.</p>')) +
-    keys.map(k => '<div class="stepper-row"><span class="lbl">' + BASE_LABELS[k] + (scope && k !== 'GP' ? ' <span class="muted small">(game ' + game[k] + ')</span>' : '') + '</span>' +
+    keys.map(k => '<div class="stepper-row"><span class="lbl">' + BASE_LABELS[k] + (scope && k !== 'GP' ? ' <span class="muted small">(game ' + raw(game, k) + ')</span>' : '') + '</span>' +
       '<button data-act="step" data-id="' + esc(playerId) + '" data-k="' + k + '" data-d="-1" ' + (val(k) > 0 ? '' : 'disabled') + ' aria-label="minus">−</button>' +
       '<span class="val">' + val(k) + '</span>' +
       '<button data-act="step" data-id="' + esc(playerId) + '" data-k="' + k + '" data-d="1" ' + (k === 'GP' && game.GP >= 1 ? 'disabled' : '') + ' aria-label="plus">+</button></div>').join('') +
@@ -1566,24 +1578,24 @@ async function coachSave(action, data) {
 function buildReport() {
   const d = S.data;
   const rows = seasonTable().filter(r => r.gp).sort((a, b) => byNumber(a.p, b.p));
-  const season = [['#', 'Player', 'GP', 'PTS', 'PPG', 'REB', 'RPG', 'AST', 'APG', 'STL', 'SPG', 'BLK', 'BPG', 'TO', 'TOPG', 'FGM', 'FGA', 'FG%', '3PM', '3PA', '3P%', 'FTM', 'FTA', 'FT%', 'PF']];
+  const season = [['#', 'Player', 'GP', 'PTS', 'PPG', 'REB', 'RPG', 'OREB', 'DREB', 'AST', 'APG', 'STL', 'SPG', 'BLK', 'BPG', 'TO', 'TOPG', 'FGM', 'FGA', 'FG%', '3PM', '3PA', '3P%', 'FTM', 'FTA', 'FT%', 'PF']];
   rows.forEach(r => {
     const l = r.l, g = r.gp, a = v => Math.round(10 * v / g) / 10;
-    season.push([r.p.number, r.p.name, g, l.pts, a(l.pts), l.REB, a(l.REB), l.AST, a(l.AST), l.STL, a(l.STL), l.BLK, a(l.BLK), l.TO, a(l.TO),
+    season.push([r.p.number, r.p.name, g, l.pts, a(l.pts), l.REB, a(l.REB), l.OREB, l.DREB, l.AST, a(l.AST), l.STL, a(l.STL), l.BLK, a(l.BLK), l.TO, a(l.TO),
       l.fgm, l.fga, pctNum(l.fgm, l.fga), l.FG3M, l.FG3A, pctNum(l.FG3M, l.FG3A), l.FTM, l.FTA, pctNum(l.FTM, l.FTA), l.PF]);
   });
-  const log = [['Date', 'Opponent', 'Location', 'Status', 'Team', 'Opp', 'Side', '#', 'Player', 'PTS', 'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PF']];
+  const log = [['Date', 'Opponent', 'Location', 'Status', 'Team', 'Opp', 'Side', '#', 'Player', 'PTS', 'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA', 'REB', 'OREB', 'DREB', 'AST', 'STL', 'BLK', 'TO', 'PF']];
   gamesWithStats().forEach(g => {
     const box = d.boxes[g.id];
     d.players.slice().sort(byNumber).forEach(p => {
       if (!played(box[p.id])) return;
       const l = line(box[p.id]);
-      log.push([g.date, g.opponent, g.location, g.status, teamPts(box), oppPts(box), d.settings.teamName, p.number, p.name, l.pts, l.fgm, l.fga, l.FG3M, l.FG3A, l.FTM, l.FTA, l.REB, l.AST, l.STL, l.BLK, l.TO, l.PF]);
+      log.push([g.date, g.opponent, g.location, g.status, teamPts(box), oppPts(box), d.settings.teamName, p.number, p.name, l.pts, l.fgm, l.fga, l.FG3M, l.FG3A, l.FTM, l.FTA, l.REB, l.OREB, l.DREB, l.AST, l.STL, l.BLK, l.TO, l.PF]);
     });
     oppPlayerList(g.oppRoster, box).forEach(p => {
       if (!hasAny(box[p.id])) return;
       const l = line(box[p.id]);
-      log.push([g.date, g.opponent, g.location, g.status, teamPts(box), oppPts(box), 'Opponent', p.number, p.name || (p.id === 'opp:team' ? 'Team' : ''), l.pts, l.fgm, l.fga, l.FG3M, l.FG3A, l.FTM, l.FTA, l.REB, l.AST, l.STL, l.BLK, l.TO, l.PF]);
+      log.push([g.date, g.opponent, g.location, g.status, teamPts(box), oppPts(box), 'Opponent', p.number, p.name || (p.id === 'opp:team' ? 'Team' : ''), l.pts, l.fgm, l.fga, l.FG3M, l.FG3A, l.FTM, l.FTA, l.REB, l.OREB, l.DREB, l.AST, l.STL, l.BLK, l.TO, l.PF]);
     });
   });
   return { 'Season Stats': season, 'Game Log': log };
@@ -1726,7 +1738,8 @@ const ACTS = {
   step(el) {
     const t = S.t, id = el.dataset.id, k = el.dataset.k, d = Number(el.dataset.d);
     const scope = k === 'GP' ? 0 : ((modalState && modalState.scope) || 0);
-    const cur = scope ? line(((t.periodBoxes || {})[scope] || {})[id])[k] : line(t.box[id])[k];
+    const src = scope ? line(((t.periodBoxes || {})[scope] || {})[id]) : line(t.box[id]);
+    const cur = k === 'REB' ? src.rebRaw : src[k];
     if (cur + d < 0 || (k === 'GP' && cur + d > 1)) return;
     const e = mkEv(id, k, d, scope || null); e.fix = true;
     commit(id, [e], 'Fix: ' + (d > 0 ? '+1 ' : '−1 ') + BASE_LABELS[k].toLowerCase(), true);

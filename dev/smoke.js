@@ -131,7 +131,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
       await parent.click(`.pbtn:has(.n:text-is("#${num}"))`);
       await parent.click(`.sbtn[data-code="${code}"]`);
     };
-    await tap(3, '3M'); await tap(3, '2X'); await tap(23, '2M'); await tap(23, 'REB'); await tap(5, 'AST');
+    await tap(3, '3M'); await tap(3, '2X'); await tap(23, '2M'); await tap(23, 'DREB'); await tap(5, 'AST');
     await tap(23, 'FM'); await tap(23, 'FX'); await tap(3, 'STL'); await tap(11, 'TO'); await tap(0, 'PF');
     // Stat first, then player
     await parent.click('.sbtn[data-code="BLK"]');
@@ -181,7 +181,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     // Overtime: OT, then 2OT appears.
     await parent.click('[data-act=period][data-n="5"]');
     await parent.waitForSelector('[data-act=period][data-n="6"]:text-is("2OT")');
-    await tap(11, 'REB');
+    await tap(11, 'DREB');
     await tap(0, 'PF');
     await parent.waitForSelector('.alert:has-text("Eli: 3 fouls")');
     await parent.waitForSelector('.end-game');
@@ -204,10 +204,10 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await parent.waitForSelector('.modal [data-act=editScope].on:text-is("OT")');
     await parent.click('.modal [data-act=editScope][data-n="1"]');
     await parent.waitForSelector('text=Numbers below are for Q1');
-    await parent.click('[data-act=step][data-k=REB][data-d="1"]');
+    await parent.click('[data-act=step][data-k=DREB][data-d="1"]');
     await shot(parent, '05c-fix-quarter');
     await parent.click('.modal [data-act=closeModal]');
-    const benQ1 = await parent.evaluate(() => { const b = S.t.players.find(p => p.name === 'Ben Center'); return S.t.periodBoxes[1][b.id].REB; });
+    const benQ1 = await parent.evaluate(() => { const b = S.t.players.find(p => p.name === 'Ben Center'); return S.t.periodBoxes[1][b.id].DREB; });
     assert.equal(benQ1, 2, 'fix landed in Q1');
     assert.equal(await parent.evaluate(() => Object.keys(S.t.periodBoxes[5]).length), 2, 'OT untouched (Eli + Dev only)');
 
@@ -256,7 +256,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     if (await pat.locator('form[data-form=whosHere]').count()) await pat.click('form[data-form=whosHere] button[type=submit]');
     assert.equal(await pat.locator('.pbtn').count(), 1, 'only Ava');
     assert.equal(await pat.locator('[data-act=side]').count(), 0, 'no opponent tracking');
-    assert.equal(await pat.locator('.sbtn[data-code=REB]').count(), 0, 'only the stats the coach allowed');
+    assert.equal(await pat.locator('.sbtn[data-code=DREB]').count(), 0, 'only the stats the coach allowed');
     assert.equal(await pat.locator('.sbtn').count(), 7, '6 shooting buttons + STL');
     await pat.click('.pbtn'); await pat.click('.sbtn[data-code="3M"]');
     await pat.click('.pbtn'); await pat.click('.sbtn[data-code="STL"]');
@@ -271,7 +271,8 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     assert.equal(rec.replace(/\s/g, ''), '1–0'); // 9–8
     const ben = await coach.$$eval('tr:has-text("Ben Center") td', tds => tds.map(t => t.textContent));
     // Player, GP, PTS, REB, AST, STL, BLK, TO, FG, FG%, 3P, 3P%, FT, FT%, PF
-    assert.deepEqual(ben.slice(1, 9), ['1', '3.0', '2.0', '0.0', '0.0', '1.0', '0.0', '1.0-1.0']);
+    // GP, PTS, REB, OREB, DREB, AST, STL, BLK, TO, FG
+    assert.deepEqual(ben.slice(1, 11), ['1', '3.0', '2.0', '0.0', '2.0', '0.0', '0.0', '1.0', '0.0', '1.0-1.0']);
     await shot(coach, '06-season');
     await coach.waitForSelector('text=Us vs. opponents');
     const oppFg = await coach.$$eval('tr:has(td:text-is("FG%")) td', tds => tds.map(t => t.textContent));
@@ -289,7 +290,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await typePin(viewer, viewerPin);
     await viewer.waitForSelector('text=Player stats');
     const vHead = await viewer.$$eval('.card:has-text("Player stats") th', ths => ths.map(t => t.textContent.replace(/[▾▴]/, '').trim()));
-    assert.deepEqual(vHead, ['Player', 'GP', 'REB', 'AST'], 'only rebounds and assists');
+    assert.deepEqual(vHead, ['Player', 'GP', 'REB', 'OREB', 'DREB', 'AST'], 'only rebounds and assists');
     assert.equal(await viewer.locator('.tile:has-text("Record")').count(), 0, 'no scoring = no record/points');
     await shot(viewer, '07b-viewer-season');
     assert.equal(await viewer.locator('[data-tab=parents]').count(), 0);
@@ -300,7 +301,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await viewer.click('.card:has-text("Valley Christian") [data-act=openBox]');
     await viewer.waitForSelector('tr.total');
     const bHead = await viewer.$$eval('.card:has(tr.total) th', ths => ths.map(t => t.textContent));
-    assert.deepEqual(bHead.slice(0, 3), ['Player', 'REB', 'AST']);
+    assert.deepEqual(bHead.slice(0, 5), ['Player', 'REB', 'OR', 'DR', 'AST']);
     assert.equal(await viewer.textContent('.score .pts'), '–');
     assert.equal(await viewer.locator('tr[data-act=editLine]').count(), 0, 'read-only box score');
     assert.equal(await viewer.locator('[data-tab=track]').count(), 0);

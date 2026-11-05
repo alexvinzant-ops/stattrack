@@ -504,3 +504,14 @@ test('team stat keepers cannot see stats after the game unless the coach allows 
   t.coach('saveParent', { id: sam.id, name: sam.name, players: [ava.id], perms: { viewOwn: true }, viewGroups: ['scoring'] });
   assert.deepEqual(t.call(sam.pin, 'scorerHome').myStats[0].box[ava.id], { FG2M: 1, FG2A: 1 });
 });
+
+test('offensive and defensive rebounds are separate stats in the rebounds group', () => {
+  const t = setup();
+  const { pat, sam, g1, ava } = seed(t);
+  t.coach('saveParent', { id: pat.id, name: pat.name, trackGroups: ['reb'] });
+  assert.equal(t.call(pat.pin, 'record', { gameId: g1.id, events: [ev(ava.id, 'OREB'), ev(ava.id, 'DREB'), ev(ava.id, 'DREB')] }).saved, 3);
+  t.coach('saveParent', { id: sam.id, name: sam.name, perms: { viewStats: true }, viewGroups: ['reb'] });
+  assert.deepEqual(t.call(sam.pin, 'all').boxes[g1.id][ava.id], { OREB: 1, DREB: 2 });
+  t.coach('saveParent', { id: sam.id, name: sam.name, perms: { viewStats: true }, viewGroups: ['ast'] });
+  assert.equal(t.call(sam.pin, 'all').boxes[g1.id][ava.id], undefined);
+});
