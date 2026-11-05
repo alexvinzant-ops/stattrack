@@ -21,14 +21,15 @@ const TEAM_DEFAULT = 'My Team';
 const TABLES = {
   Settings: ['Setting', 'Value'],
   Players: ['ID', 'Number', 'Name', 'Active'],
-  Parents: ['ID', 'Name', 'PIN', 'Active', 'Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players', 'Email', 'Phone', 'Invited'],
+  Parents: ['ID', 'Name', 'PIN', 'Active', 'Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players', 'Email', 'Phone', 'Invited', 'Track Stats', 'See Stats'],
+  // Scorer ID: one or more parent IDs, comma-separated (several parents can split a game's stats).
   Games: ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes', 'Opp Roster'],
   // Book is blank for official stats, or a parent's ID for that parent's own record of their players.
   // Period: 1-4 = quarters, 5 = OT, 6 = 2OT... (blank on plays recorded before quarters were tracked)
   Events: ['ID', 'Game ID', 'Player ID', 'Stat', 'Delta', 'Time', 'Entered By', 'Book', 'Period'],
 };
 // Columns stored as plain text so Sheets doesn't turn PINs, dates, or jersey "00" into numbers/dates.
-const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3, 9, 11, 12, 13], Games: [2, 8] };
+const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3, 9, 11, 12, 13, 14, 15], Games: [2, 5, 8] };
 
 // Base counters. Everything else (points, FG, %) is derived.
 const STATS = ['GP', 'FG2M', 'FG2A', 'FG3M', 'FG3A', 'FTM', 'FTA', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PF', 'OPP'];
@@ -49,7 +50,18 @@ const PERMS = {
   trackAny: ['Track Any', false], fixStats: ['Fix Stats', true], viewStats: ['View Stats', false],
   manage: ['Manage', false], viewOwn: ['See Own Players', false],
 };
-const ALL_PERMS = { trackAny: true, fixStats: true, viewStats: true, manage: true, viewOwn: true };
+// Stat groups the coach can allow per person, for entering stats ("Track Stats") and for seeing
+// them after games ("See Stats"). Blank = all groups, "-" = none. Games played is always allowed.
+const STAT_GROUPS = {
+  scoring: ['FG2M', 'FG2A', 'FG3M', 'FG3A', 'FTM', 'FTA'],
+  reb: ['REB'], ast: ['AST'], stl: ['STL'], blk: ['BLK'], to: ['TO'], pf: ['PF'],
+};
+const TRACK_GROUPS = Object.keys(STAT_GROUPS).concat(['opp']); // opp = the opponent's stats and score
+const VIEW_GROUPS = Object.keys(STAT_GROUPS);
+const ALL_PERMS = {
+  trackAny: true, fixStats: true, viewStats: true, manage: true, viewOwn: true,
+  trackGroups: TRACK_GROUPS.slice(), viewGroups: VIEW_GROUPS.slice(),
+};
 const MAX_FAILED_LOGINS = 30; // across everyone, per 15 minutes
 
 // ---------------------------------------------------------------------------
@@ -155,7 +167,7 @@ function me_(who) {
 
 function scorerHome_(who) {
   const all = listGames_().sort((a, b) => a.date.localeCompare(b.date));
-  const games = all.filter(g => g.status !== 'final' && (g.scorerId === who.id || who.perms.trackAny || who.perms.manage));
+  const games = all.filter(g => g.status !== 'final' && (g.scorerIds.indexOf(who.id) >= 0 || who.perms.trackAny || who.perms.manage));
   const mine = myPlayers_(who);
   const out = {
     me: me_(who),
@@ -172,7 +184,7 @@ function scorerHome_(who) {
     out.myStats = all.filter(g => boxes[g.id]).map(g => {
       const box = {};
       Object.keys(boxes[g.id]).forEach(k => { if (ids[k]) box[k] = boxes[g.id][k]; });
-      return { game: { id: g.id, date: g.date, opponent: g.opponent, location: g.location, status: g.status }, box: box };
+      return { game: { id: g.id, date: g.date, opponent: g.opponent, location: g.location, status: g.status }, box: filterBox_(box, who.perms.viewGroups) };
     }).filter(x => Object.keys(x.box).length);
   }
   return out;
@@ -196,9 +208,16 @@ function getGame_(who, data) {
   if (data.mode === 'personal') return getPersonalGame_(who, g);
   const track = canTrack_(who, g);
   if (!track && !(who.perms.viewStats || who.perms.manage)) checkGameAccess_(who, g); // throws the reason
-  const box = boxes_(g.id)[g.id] || {};
+  let box = boxes_(g.id)[g.id] || {};
   const players = listPlayers_().filter(p => p.active || box[p.id]);
   const byPeriod = periods_(g.id);
+  // While tracking a game you see its live numbers; afterwards, only what the coach allows.
+  if (!track && !seesAll_(who)) {
+    const groups = who.perms.viewGroups;
+    box = filterBox_(box, groups);
+    byPeriod.periods = filterPeriods_(byPeriod.periods, groups);
+    Object.keys(byPeriod.boxes).forEach(n => { byPeriod.boxes[n] = filterBox_(byPeriod.boxes[n], groups); });
+  }
   const out = {
     game: g, box: box, players: players,
     canTrack: track,
@@ -254,6 +273,7 @@ function record_(who, data) {
       const delta = Number(e.delta);
       if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 10) throw new Error('Bad stat change.');
       let playerId = str_(e.playerId);
+      if (!canEnterStat_(who, stat, str_(e.playerId))) throw new Error("You're not set up to enter that stat. Ask the coach.");
       if (allowed) {
         if (!allowed[playerId] || !playerIds[playerId] || stat === 'OPP') throw new Error('You can only keep stats for your assigned players.');
       } else if (stat === 'OPP') playerId = '';
@@ -296,7 +316,7 @@ function setOppRoster_(who, data) {
 function canTrack_(who, g) {
   if (who.role === 'coach' || who.perms.manage) return true;
   if (g.status === 'final') return false;
-  return g.scorerId === who.id || !!who.perms.trackAny;
+  return g.scorerIds.indexOf(who.id) >= 0 || !!who.perms.trackAny;
 }
 
 function checkGameAccess_(who, g) {
@@ -323,10 +343,16 @@ function all_(who) {
     // PINs and permissions are only ever sent to the coach.
     parents: readTable_('Parents').map(parent_).map(p => (isCoach ? p : { id: p.id, name: p.name, active: p.active })),
     games: listGames_(),
-    boxes: boxes_(),
+    boxes: seesAll_(who) ? boxes_() : filterAllBoxes_(boxes_(), who.perms.viewGroups),
     appUrl: isCoach ? appUrl : '',
     sheetUrl: isCoach ? sheetUrl : '',
   };
+}
+
+function filterAllBoxes_(boxes, groups) {
+  const out = {};
+  Object.keys(boxes).forEach(id => { out[id] = filterBox_(boxes[id], groups); });
+  return out;
 }
 
 function savePlayer_(who, d) {
@@ -386,8 +412,12 @@ function saveGame_(who, d) {
   if (!opponent) throw new Error('Opponent is required.');
   const location = LOCATIONS.indexOf(d.location) >= 0 ? d.location : 'home';
   const status = STATUSES.indexOf(d.status) >= 0 ? d.status : 'scheduled';
-  const scorerId = str_(d.scorerId);
-  if (scorerId && !readTable_('Parents').some(r => str_(r.ID) === scorerId)) throw new Error('Unknown parent.');
+  const known = {};
+  readTable_('Parents').forEach(r => { known[str_(r.ID)] = true; });
+  const wanted = Array.isArray(d.scorerIds) ? d.scorerIds : (d.scorerId ? [d.scorerId] : []);
+  const ids = wanted.map(str_).filter(Boolean);
+  if (ids.some(id => !known[id])) throw new Error('Unknown parent.');
+  const scorerId = ids.filter((id, i) => ids.indexOf(id) === i).join(',');
   const notes = clean_(d.notes, 200);
   const oppRoster = oppRosterText_(d.oppRoster);
   withLock_(() => {
@@ -425,7 +455,11 @@ function saveParent_(who, d) {
   const email = clean_(d.email, 100).toLowerCase();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("That email address doesn't look right.");
   const phone = cleanPhone_(d.phone);
-  const obj = { Name: name, Active: active, Players: players.join(','), Email: email, Phone: phone };
+  const obj = {
+    Name: name, Active: active, Players: players.join(','), Email: email, Phone: phone,
+    'Track Stats': groupText_(d.trackGroups, TRACK_GROUPS),
+    'See Stats': groupText_(d.viewGroups, VIEW_GROUPS),
+  };
   Object.keys(PERMS).forEach(k => { obj[PERMS[k][0]] = k in perms ? !!perms[k] : PERMS[k][1]; });
   withLock_(() => {
     if (d.id) {
@@ -478,7 +512,8 @@ function deleteParent_(who, d) {
     const row = findRow_('Parents', d.id);
     sheet_('Parents').deleteRow(row._row);
     readTable_('Games').forEach(g => {
-      if (str_(g['Scorer ID']) === str_(d.id)) updateGameField_(str_(g.ID), 'Scorer ID', '');
+      const ids = idList_(g['Scorer ID']);
+      if (ids.indexOf(str_(d.id)) >= 0) updateGameField_(str_(g.ID), 'Scorer ID', ids.filter(x => x !== str_(d.id)).join(','));
     });
   });
   return all_(who);
@@ -547,7 +582,67 @@ function listPlayers_() {
 function perms_(r) {
   const out = {};
   Object.keys(PERMS).forEach(k => { out[k] = bool_(r[PERMS[k][0]], PERMS[k][1]); });
+  out.trackGroups = groupList_(r['Track Stats'], TRACK_GROUPS);
+  out.viewGroups = groupList_(r['See Stats'], VIEW_GROUPS);
   return out;
+}
+
+function groupList_(v, all) {
+  const raw = str_(v);
+  if (!raw) return all.slice();
+  if (raw === '-') return [];
+  return idList_(raw).filter(g => all.indexOf(g) >= 0);
+}
+
+function groupText_(list, all) {
+  const clean = (Array.isArray(list) ? list : all).filter(g => all.indexOf(g) >= 0);
+  if (clean.length === all.length) return '';
+  return clean.length ? clean.join(',') : '-';
+}
+
+function statGroup_(stat) {
+  return Object.keys(STAT_GROUPS).find(g => STAT_GROUPS[g].indexOf(stat) >= 0) || '';
+}
+
+/** Is this person allowed to enter this play? (Coach and assistant coaches can enter anything.) */
+function canEnterStat_(who, stat, playerId) {
+  if (who.role === 'coach' || who.perms.manage) return true;
+  const groups = who.perms.trackGroups || [];
+  if (stat === 'OPP' || OPP_ID.test(playerId)) {
+    if (groups.indexOf('opp') < 0) return false;
+    if (stat === 'OPP') return true;
+  }
+  return stat === 'GP' || groups.indexOf(statGroup_(stat)) >= 0;
+}
+
+/** Keeps only the stats this viewer may see. Points (and the opponent's score) need "scoring". */
+function filterBox_(box, groups) {
+  const out = {};
+  Object.keys(box || {}).forEach(k => {
+    const line = {};
+    Object.keys(box[k]).forEach(stat => {
+      const ok = stat === 'GP' || (stat === 'OPP' ? groups.indexOf('scoring') >= 0 : groups.indexOf(statGroup_(stat)) >= 0);
+      if (ok) line[stat] = box[k][stat];
+    });
+    if (Object.keys(line).length) out[k] = line;
+  });
+  return out;
+}
+
+function filterPeriods_(periods, groups) {
+  const out = {};
+  Object.keys(periods || {}).forEach(n => {
+    const q = periods[n], o = {};
+    if (groups.indexOf('scoring') >= 0) { o.us = q.us; o.opp = q.opp; }
+    if (groups.indexOf('pf') >= 0) { o.usPF = q.usPF; o.oppPF = q.oppPF; }
+    out[n] = o;
+  });
+  return out;
+}
+
+/** Coach and assistant coaches see every stat; everyone else only the groups the coach chose. */
+function seesAll_(who) {
+  return !who || who.role === 'coach' || !!who.perms.manage;
 }
 
 function parent_(r) {
@@ -584,7 +679,7 @@ function listGames_() {
       date: date_(r.Date),
       opponent: str_(r.Opponent),
       location: LOCATIONS.indexOf(location) >= 0 ? location : 'home',
-      scorerId: str_(r['Scorer ID']),
+      scorerIds: idList_(r['Scorer ID']),
       status: STATUSES.indexOf(status) >= 0 ? status : 'scheduled',
       notes: str_(r.Notes),
       oppRoster: parseOppRoster_(r['Opp Roster']),
