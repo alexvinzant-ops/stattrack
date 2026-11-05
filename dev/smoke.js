@@ -127,6 +127,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await parent.waitForSelector('form[data-form=whosHere]');
     await parent.uncheck('input[name=p] >> nth=5'); // Finn is absent
     await parent.click('form[data-form=whosHere] button[type=submit]');
+    assert.equal(await parent.locator('.clock-bar').count(), 0, 'only the clock keeper gets the clock');
     const tap = async (num, code) => {
       await parent.click(`.pbtn:has(.n:text-is("#${num}"))`);
       await parent.click(`.sbtn[data-code="${code}"]`);
@@ -295,9 +296,41 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.click('.card:has-text("Hillside") [data-act=openGame]');
     await coach.waitForSelector('form[data-form=whosHere]');
     await coach.click('form[data-form=whosHere] button[type=submit]');
+    // Minutes & +/-: the coach runs the clock and subs for this game.
+    await coach.waitForSelector('.clock-bar [data-clock]:text-is("8:00")');
+    await coach.click('[data-act=subs]');
+    for (const num of ['3', '23', '5', '11', '0']) await coach.check(`.modal label:has-text("#${num} ") input`);
+    await coach.waitForSelector('#ocCount:text-is("5 of 5 checked")');
+    await coach.click('form[data-form=subs] button[type=submit]');
+    await coach.waitForSelector('.clock-bar .court:has-text("#0 #3 #5 #11 #23")');
+    assert.equal(await coach.locator('.pbtn.oncourt').count(), 5);
+    await coach.click('[data-act=clockStart]');
+    await coach.waitForTimeout(2200);
     await coach.click('.pbtn:has(.n:text-is("#3"))'); await coach.click('.sbtn[data-code="2M"]');
     await coach.click('.pbtn:has(.n:text-is("#3"))'); await coach.click('.sbtn[data-code="FM"]');
+    await coach.click('[data-act=clockStop]');
+    assert.match(await coach.textContent('[data-clock]'), /^7:5\d$/);
+    await shot(coach, '11-clock');
+    // Sub: Finn in for Eli, then the opponent scores 2.
+    await coach.click('[data-act=subs]');
+    await coach.uncheck('.modal label:has-text("#0 ") input');
+    await coach.check('.modal label:has-text("#32 ") input');
+    await coach.click('form[data-form=subs] button[type=submit]');
+    await coach.click('[data-act=opp][data-d="2"]');
+    await coach.click('[data-act=setClock]');
+    await coach.fill('input[name=left]', '4:00');
+    await coach.click('form[data-form=setClock] button[type=submit]');
+    await coach.waitForSelector('[data-clock]:text-is("4:00")');
     await coach.waitForSelector('.sync:text("All saved")');
+    await coach.click('[data-act=gameTab][data-tab=box]');
+    await coach.waitForSelector('th:text-is("+/-")');
+    const pm = await coach.$$eval('.card:has(tr.total) tbody tr:not(.total)', trs => trs.map(tr => [tr.cells[0].textContent, tr.cells[1].textContent, tr.cells[tr.cells.length - 1].textContent]));
+    const pmOf = name => pm.find(r => r[0].includes(name));
+    assert.equal(pmOf('Ava')[2], '+1', 'Ava: +3 then -2');
+    assert.equal(pmOf('Eli')[2], '+3', 'Eli subbed out before their basket');
+    assert.equal(pmOf('Finn')[2], '-2');
+    assert.equal(pmOf('Ava')[1], '0', 'about 2 seconds rounds to 0 minutes');
+    await shot(coach, '11b-box-minutes');
     await coach.click('[data-act=leaveGame]');
     await coach.click('[data-act=tab][data-tab=season]');
     await coach.click('tr[data-act=openPlayer]:has-text("Ava Guard")');
@@ -306,6 +339,8 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     assert.deepEqual(await coach.$$eval('svg.trend .tv', ts => ts.map(t => t.textContent)), ['4', '3']);
     await coach.click('[data-act=trendStat][data-k=ftp]');
     assert.deepEqual(await coach.$$eval('svg.trend .tv', ts => ts.map(t => t.textContent)), ['100%', '100%']);
+    await coach.click('[data-act=trendStat][data-k=pm]');
+    assert.deepEqual(await coach.$$eval('svg.trend .tv', ts => ts.map(t => t.textContent)), ['–', '+1'], 'no clock in the first game');
     await coach.click('[data-act=trendStat][data-k=pts]');
     await shot(coach, '07-player');
     await coach.click('[data-act=back]');
@@ -345,7 +380,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     // Official season stats were not changed by Pat's record.
     await coach.click('[data-act=tab][data-tab=season]');
     await coach.click('[data-act=refresh]');
-    const avaPts = await coach.$$eval('tr:has-text("Ava Guard") td', tds => tds[2].textContent);
+    const avaPts = await coach.$$eval('tr:has-text("Ava Guard") td', tds => tds[3].textContent); // Player, GP, MIN, PTS
     assert.equal(avaPts, '7'); // 4 + 3 official; Pat's separate record (3 more) is not counted
 
     // Pat can see Ava's official stats.
@@ -356,6 +391,8 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     const saved = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
     assert.ok(saved['Game Log'].some(r => r[6] === 'Opponent' && r[7] === '23' && r[9] === 3), 'opponent rows exported');
     assert.equal(saved['Season Stats'][0][1], 'Player');
+    const sHead = saved['Season Stats'][0], ava = saved['Season Stats'].find(r => r[1] === 'Ava Guard');
+    assert.equal(ava[sHead.indexOf('Plus/Minus')], 1, 'season +/- exported');
     assert.equal(saved['Season Stats'].length, 7, 'six players who played (Finn played the second game)');
 
     assert.deepEqual(errors, [], 'no page errors');
