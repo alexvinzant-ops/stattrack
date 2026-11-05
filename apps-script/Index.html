@@ -177,6 +177,29 @@ table.compare tr.book-row td { border-bottom-width: 2px; }
 .period-seg button.on { background: var(--gold); color: #1d2433; }
 .box-filter { margin: 4px 0 10px; display: flex; flex-wrap: wrap; }
 .box-filter button { flex: 1; min-width: 44px; padding: 6px 8px; }
+#print-root { display: none; }
+body.show-print #app, body.show-print #modal-root, body.show-print #toast-root { display: none; }
+body.show-print #print-root { display: block; background: #fff; min-height: 100vh; }
+.print-page { max-width: 1000px; margin: 0 auto; padding: 16px; color: #000; font-size: 13px; }
+.print-page h1 { font-size: 22px; margin: 8px 0 2px; }
+.print-page h3 { font-size: 15px; margin: 16px 0 4px; }
+.print-page .meta { color: #333; margin: 2px 0 8px; }
+.print-page .foot { margin-top: 14px; font-size: 11px; color: #555; }
+.print-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+.print-page .table-scroll { overflow-x: auto; }
+table.pt { border-collapse: collapse; width: 100%; font-size: 12px; margin-bottom: 6px; }
+table.pt th, table.pt td { border: 1px solid #999; padding: 3px 5px; text-align: center; white-space: nowrap; position: static; background: #fff; color: #000; }
+table.pt th { background: #eee; font-size: 11px; text-transform: uppercase; }
+table.pt .name { text-align: left; }
+table.pt tr.tot td { font-weight: 800; border-top: 2px solid #000; }
+table.pt.quarters { width: auto; min-width: 50%; }
+@media print {
+  @page { size: landscape; margin: 0.4in; }
+  body { background: #fff; }
+  .print-actions { display: none !important; }
+  .print-page { padding: 0; max-width: none; }
+}
+@media screen and (max-width: 700px) { body.show-print .print-page { overflow-x: auto; } }
 .alerts { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
 .alert { font-size: 13px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--warn-bg); color: #6b4300; }
 .alert.bad { background: var(--bad-bg); color: var(--bad); }
@@ -223,6 +246,7 @@ label.check span .muted, label.check.choice span .muted { display: block; font-w
 <div id="app"><div class="loading">Loading…</div></div>
 <div id="modal-root"></div>
 <div id="toast-root"></div>
+<div id="print-root"></div>
 
 <script>
 'use strict';
@@ -828,7 +852,58 @@ function viewGameBox(coach) {
       : '<p class="muted small" style="margin:0 0 8px">Showing ' + (t.boxFilter === 'ot' ? 'overtime' : periodLabel(Number(t.boxFilter))) + ' only (' + shortTeam() + ' ' + teamPts(shown) + ', ' + esc(g.opponent) + ' ' + oppPts(shown) + '). Tap Game to fix numbers.</p>') +
     boxTable(t.players, shown, t.canFix && whole) +
     (unplayed.length ? '<div class="row wrap-row" style="margin-top:12px"><span class="muted small">Add a player:</span>' + unplayed.map(p => '<button class="btn sm" data-act="editLine" data-id="' + esc(p.id) + '">' + esc(playerLabel(p)) + '</button>').join('') + '</div>' : '') +
-    '</div>' + quarterCard() + oppCard + parentBooksCard() + (statusHtml ? '<div class="card">' + statusHtml + '</div>' : '');
+    '</div>' + quarterCard() + oppCard + parentBooksCard() + (statusHtml ? '<div class="card">' + statusHtml + '</div>' : '') +
+    (S.me.role === 'coach' ? '<button class="btn big" style="margin-top:12px" data-act="printBox">🖨 Printable box score</button>' : '');
+}
+
+// ---------------------------------------------------------------------------
+// Printable box score (coach only): a clean black-and-white page to print or save as PDF.
+// ---------------------------------------------------------------------------
+function printTable(title, players, box, extraCols) {
+  const cols = [['PTS', l => l.pts], ['FG', l => l.fgm + '-' + l.fga], ['FG%', l => pct(l.fgm, l.fga)], ['3P', l => l.FG3M + '-' + l.FG3A],
+    ['FT', l => l.FTM + '-' + l.FTA], ['OR', l => l.OREB], ['DR', l => l.DREB], ['REB', l => l.REB], ['AST', l => l.AST], ['STL', l => l.STL],
+    ['BLK', l => l.BLK], ['TO', l => l.TO], ['PF', l => l.PF]].concat(extraCols || []);
+  const rows = players.filter(p => played(box[p.id]));
+  let tot = {};
+  const body = rows.map(p => {
+    tot = addLine(tot, box[p.id]);
+    const l = line(box[p.id]);
+    l.id = p.id;
+    return '<tr><td class="num">' + esc(p.number) + '</td><td class="name">' + esc(p.id === 'opp:team' ? 'Team / unknown #' : p.name) + '</td>' + cols.map(c => '<td>' + c[1](l) + '</td>').join('') + '</tr>';
+  }).join('');
+  const lt = line(tot);
+  lt.id = '_total';
+  return '<h3>' + esc(title) + '</h3><div class="table-scroll"><table class="pt"><thead><tr><th>#</th><th class="name">Player</th>' + cols.map(c => '<th>' + c[0] + '</th>').join('') + '</tr></thead><tbody>' +
+    (body || '<tr><td colspan="' + (cols.length + 2) + '">No stats</td></tr>') +
+    (rows.length ? '<tr class="tot"><td></td><td class="name">Totals</td>' + cols.map(c => '<td>' + c[1](lt) + '</td>').join('') + '</tr>' : '') + '</tbody></table></div>';
+}
+
+function printBox() {
+  const t = S.t, g = t.game;
+  const us = teamPts(t.box), them = oppPts(t.box);
+  const ns = Object.keys(t.periods || {}).map(Number).filter(n => n > 0);
+  for (let n = 1; n <= 4; n++) if (ns.indexOf(n) < 0) ns.push(n);
+  ns.sort((a, b) => a - b);
+  const hasQ = Object.keys(t.periods || {}).length > 0;
+  const q = (n, k) => n0(((t.periods || {})[n] || {})[k]);
+  const quarters = hasQ ? '<table class="pt quarters"><thead><tr><th class="name">Team</th>' + ns.map(n => '<th>' + periodLabel(n) + '</th>').join('') + '<th>Final</th></tr></thead><tbody>' +
+    '<tr><td class="name">' + esc(S.teamName) + '</td>' + ns.map(n => '<td>' + q(n, 'us') + '</td>').join('') + '<td><b>' + us + '</b></td></tr>' +
+    '<tr><td class="name">' + esc(g.opponent) + '</td>' + ns.map(n => '<td>' + q(n, 'opp') + '</td>').join('') + '<td><b>' + them + '</b></td></tr></tbody></table>' : '';
+  const extra = typeof flowCols === 'function' ? flowCols(t) : [];
+  const opps = oppPlayerList(g.oppRoster, t.box);
+  const result = g.status === 'final' ? (us > them ? 'W' : us < them ? 'L' : 'T') + ' ' : '';
+  $('#print-root').innerHTML = '<div class="print-page">' +
+    '<div class="print-actions"><button class="btn primary" data-act="doPrint">Print / Save as PDF</button><button class="btn" data-act="closePrint">Close</button></div>' +
+    '<h1>' + esc(S.teamName) + ' ' + us + ', ' + esc(g.opponent) + ' ' + them + '</h1>' +
+    '<p class="meta">' + esc(result) + esc(fmtDate(g.date)) + ' · ' + esc(g.location === 'away' ? 'Away' : g.location === 'neutral' ? 'Neutral site' : 'Home') +
+    (g.status === 'final' ? ' · Final' : ' · In progress') + (S.data && S.data.settings.season ? ' · ' + esc(S.data.settings.season) + ' season' : '') + '</p>' +
+    quarters +
+    printTable(S.teamName, gamePlayers(), t.box, extra) +
+    (hasOppStats(t.box) ? printTable(g.opponent, opps, t.box) : '') +
+    (n0(t.box[TEAM] && t.box[TEAM].OPP) ? '<p class="meta">' + esc(g.opponent) + ' points not credited to a player: ' + n0(t.box[TEAM].OPP) + '</p>' : '') +
+    '<p class="meta foot">OR/DR = offensive/defensive rebounds. Printed ' + esc(new Date().toLocaleString()) + '.</p></div>';
+  document.body.classList.add('show-print');
+  window.scrollTo(0, 0);
 }
 
 function quarterCard() {
@@ -1749,6 +1824,9 @@ const ACTS = {
   checkAll(el) {
     el.closest('form').querySelectorAll('input[name=' + el.dataset.name + ']').forEach(i => { i.checked = !!el.dataset.on; });
   },
+  printBox() { printBox(); },
+  doPrint() { window.print(); },
+  closePrint() { document.body.classList.remove('show-print'); $('#print-root').innerHTML = ''; },
   editScope(el) { lineEditor(el.dataset.id, Number(el.dataset.n)); },
   allPlays() { playsModal(); },
   async setStatus(el) {

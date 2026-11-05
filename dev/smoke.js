@@ -277,6 +277,18 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.waitForSelector('text=Us vs. opponents');
     const oppFg = await coach.$$eval('tr:has(td:text-is("FG%")) td', tds => tds.map(t => t.textContent));
     assert.deepEqual(oppFg, ['FG%', '100.0', '50.0']); // 4-4 after undoing the Q1 miss
+    // Printable box score (coach only).
+    await coach.click('[data-act=tab][data-tab=games]');
+    await coach.click('.card:has-text("Valley Christian") [data-act=openBox]');
+    await coach.click('[data-act=printBox]');
+    await coach.waitForSelector('.print-page h1');
+    assert.equal(await coach.textContent('.print-page h1'), 'My Team 11, Valley Christian 8');
+    assert.equal(await coach.locator('.print-page table.pt').count(), 3, 'quarters + both teams');
+    assert.equal(await coach.isVisible('#app'), false, 'only the printable page shows');
+    await shot(coach, '06b-print');
+    await coach.click('[data-act=closePrint]');
+    await coach.click('[data-act=leaveGame]');
+    await coach.click('[data-act=tab][data-tab=season]');
     await coach.click('[data-act=seasonMode][data-m=tot]');
     await coach.click('tr[data-act=openPlayer]:has-text("Ava Guard")');
     await coach.waitForSelector('text=Game log');
