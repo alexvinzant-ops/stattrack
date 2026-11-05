@@ -32,7 +32,8 @@ const TABLES = {
 const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3, 9, 11, 12, 13, 14, 15], Games: [2, 5, 8] };
 
 // Base counters. Everything else (points, FG, %) is derived.
-const STATS = ['GP', 'FG2M', 'FG2A', 'FG3M', 'FG3A', 'FTM', 'FTA', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PF', 'OPP'];
+// REB = rebounds entered before offensive/defensive were tracked separately.
+const STATS = ['GP', 'FG2M', 'FG2A', 'FG3M', 'FG3A', 'FTM', 'FTA', 'REB', 'OREB', 'DREB', 'AST', 'STL', 'BLK', 'TO', 'PF', 'OPP'];
 const STATUSES = ['scheduled', 'live', 'final'];
 const LOCATIONS = ['home', 'away', 'neutral'];
 const REPORT_SHEETS = ['Season Stats', 'Game Log'];
@@ -54,7 +55,7 @@ const PERMS = {
 // them after games ("See Stats"). Blank = all groups, "-" = none. Games played is always allowed.
 const STAT_GROUPS = {
   scoring: ['FG2M', 'FG2A', 'FG3M', 'FG3A', 'FTM', 'FTA'],
-  reb: ['REB'], ast: ['AST'], stl: ['STL'], blk: ['BLK'], to: ['TO'], pf: ['PF'],
+  reb: ['REB', 'OREB', 'DREB'], ast: ['AST'], stl: ['STL'], blk: ['BLK'], to: ['TO'], pf: ['PF'],
 };
 const TRACK_GROUPS = Object.keys(STAT_GROUPS).concat(['opp']); // opp = the opponent's stats and score
 const VIEW_GROUPS = Object.keys(STAT_GROUPS);

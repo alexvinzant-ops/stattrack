@@ -131,7 +131,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
       await parent.click(`.pbtn:has(.n:text-is("#${num}"))`);
       await parent.click(`.sbtn[data-code="${code}"]`);
     };
-    await tap(3, '3M'); await tap(3, '2X'); await tap(23, '2M'); await tap(23, 'REB'); await tap(5, 'AST');
+    await tap(3, '3M'); await tap(3, '2X'); await tap(23, '2M'); await tap(23, 'DREB'); await tap(5, 'AST');
     await tap(23, 'FM'); await tap(23, 'FX'); await tap(3, 'STL'); await tap(11, 'TO'); await tap(0, 'PF');
     // Stat first, then player
     await parent.click('.sbtn[data-code="BLK"]');
@@ -181,7 +181,9 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     // Overtime: OT, then 2OT appears.
     await parent.click('[data-act=period][data-n="5"]');
     await parent.waitForSelector('[data-act=period][data-n="6"]:text-is("2OT")');
-    await tap(11, 'REB');
+    await tap(11, 'DREB');
+    await tap(0, 'PF');
+    await parent.waitForSelector('.alert:has-text("Eli: 3 fouls")');
     await parent.waitForSelector('.end-game');
     await shot(parent, '04c-quarters');
     await parent.waitForSelector('.sync:text("All saved")');
@@ -193,7 +195,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     // Overtime-only box score: just Dev's rebound.
     await parent.click('[data-act=boxFilter][data-f=ot]');
     const otRows = await parent.$$eval('.card:has(.box-filter) tbody tr:not(.total) td:first-child', tds => tds.map(t => t.textContent));
-    assert.deepEqual(otRows, ['#11Dev Forward']);
+    assert.deepEqual(otRows, ['#0Eli Point', '#11Dev Forward']);
     await shot(parent, '05b-ot-box');
     await parent.click('[data-act=boxFilter][data-f=all]');
     await shot(parent, '05-box');
@@ -202,12 +204,12 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await parent.waitForSelector('.modal [data-act=editScope].on:text-is("OT")');
     await parent.click('.modal [data-act=editScope][data-n="1"]');
     await parent.waitForSelector('text=Numbers below are for Q1');
-    await parent.click('[data-act=step][data-k=REB][data-d="1"]');
+    await parent.click('[data-act=step][data-k=DREB][data-d="1"]');
     await shot(parent, '05c-fix-quarter');
     await parent.click('.modal [data-act=closeModal]');
-    const benQ1 = await parent.evaluate(() => { const b = S.t.players.find(p => p.name === 'Ben Center'); return S.t.periodBoxes[1][b.id].REB; });
+    const benQ1 = await parent.evaluate(() => { const b = S.t.players.find(p => p.name === 'Ben Center'); return S.t.periodBoxes[1][b.id].DREB; });
     assert.equal(benQ1, 2, 'fix landed in Q1');
-    assert.equal(await parent.evaluate(() => Object.keys(S.t.periodBoxes[5]).length), 1, 'OT untouched');
+    assert.equal(await parent.evaluate(() => Object.keys(S.t.periodBoxes[5]).length), 2, 'OT untouched (Eli + Dev only)');
 
     // Full play-by-play: undo an old Q1 play from the list.
     await parent.click('[data-act=gameTab][data-tab=track]');
@@ -223,6 +225,21 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await parent.click('.modal [data-act=closeModal]');
     await parent.click('[data-act=gameTab][data-tab=box]');
     await parent.waitForSelector('.sync:text("All saved")');
+    // Live bench view: the coach's open box score updates by itself while the parent taps.
+    await coach.click('[data-act=tab][data-tab=games]');
+    await coach.click('.card:has-text("Valley Christian") [data-act=openBox]');
+    await coach.waitForSelector('text=Live: updates automatically');
+    await parent.click('[data-act=gameTab][data-tab=track]');
+    await tap(11, 'AST');
+    await parent.waitForSelector('.sync:text("All saved")');
+    await coach.waitForFunction(() => {
+      const dev = S.t && S.t.players.find(p => p.name === 'Dev Forward');
+      return dev && (S.t.box[dev.id] || {}).AST === 1;
+    }, null, { timeout: 20000 });
+    await coach.waitForSelector('.alert:has-text("Eli: 3 fouls")');
+    await shot(coach, '05e-live-bench');
+    await coach.click('[data-act=leaveGame]');
+    await parent.click('[data-act=gameTab][data-tab=box]');
     await parent.click('[data-act=endGame]');
     await parent.waitForSelector('text=No games are assigned to you right now.');
 
@@ -239,7 +256,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     if (await pat.locator('form[data-form=whosHere]').count()) await pat.click('form[data-form=whosHere] button[type=submit]');
     assert.equal(await pat.locator('.pbtn').count(), 1, 'only Ava');
     assert.equal(await pat.locator('[data-act=side]').count(), 0, 'no opponent tracking');
-    assert.equal(await pat.locator('.sbtn[data-code=REB]').count(), 0, 'only the stats the coach allowed');
+    assert.equal(await pat.locator('.sbtn[data-code=DREB]').count(), 0, 'only the stats the coach allowed');
     assert.equal(await pat.locator('.sbtn').count(), 7, '6 shooting buttons + STL');
     await pat.click('.pbtn'); await pat.click('.sbtn[data-code="3M"]');
     await pat.click('.pbtn'); await pat.click('.sbtn[data-code="STL"]');
@@ -254,14 +271,42 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     assert.equal(rec.replace(/\s/g, ''), '1–0'); // 9–8
     const ben = await coach.$$eval('tr:has-text("Ben Center") td', tds => tds.map(t => t.textContent));
     // Player, GP, PTS, REB, AST, STL, BLK, TO, FG, FG%, 3P, 3P%, FT, FT%, PF
-    assert.deepEqual(ben.slice(1, 9), ['1', '3.0', '2.0', '0.0', '0.0', '1.0', '0.0', '1.0-1.0']);
+    // GP, PTS, REB, OREB, DREB, AST, STL, BLK, TO, FG
+    assert.deepEqual(ben.slice(1, 11), ['1', '3.0', '2.0', '0.0', '2.0', '0.0', '0.0', '1.0', '0.0', '1.0-1.0']);
     await shot(coach, '06-season');
     await coach.waitForSelector('text=Us vs. opponents');
     const oppFg = await coach.$$eval('tr:has(td:text-is("FG%")) td', tds => tds.map(t => t.textContent));
     assert.deepEqual(oppFg, ['FG%', '100.0', '50.0']); // 4-4 after undoing the Q1 miss
+    // Printable box score (coach only).
+    await coach.click('[data-act=tab][data-tab=games]');
+    await coach.click('.card:has-text("Valley Christian") [data-act=openBox]');
+    await coach.click('[data-act=printBox]');
+    await coach.waitForSelector('.print-page h1');
+    assert.equal(await coach.textContent('.print-page h1'), 'My Team 11, Valley Christian 8');
+    assert.equal(await coach.locator('.print-page table.pt').count(), 3, 'quarters + both teams');
+    assert.equal(await coach.isVisible('#app'), false, 'only the printable page shows');
+    await shot(coach, '06b-print');
+    await coach.click('[data-act=closePrint]');
+    await coach.click('[data-act=leaveGame]');
+    await coach.click('[data-act=tab][data-tab=season]');
     await coach.click('[data-act=seasonMode][data-m=tot]');
+    // Coach keeps stats for a second game so Ava has a trend.
+    await coach.click('[data-act=tab][data-tab=games]');
+    await coach.click('.card:has-text("Hillside") [data-act=openGame]');
+    await coach.waitForSelector('form[data-form=whosHere]');
+    await coach.click('form[data-form=whosHere] button[type=submit]');
+    await coach.click('.pbtn:has(.n:text-is("#3"))'); await coach.click('.sbtn[data-code="2M"]');
+    await coach.click('.pbtn:has(.n:text-is("#3"))'); await coach.click('.sbtn[data-code="FM"]');
+    await coach.waitForSelector('.sync:text("All saved")');
+    await coach.click('[data-act=leaveGame]');
+    await coach.click('[data-act=tab][data-tab=season]');
     await coach.click('tr[data-act=openPlayer]:has-text("Ava Guard")');
     await coach.waitForSelector('text=Game log');
+    assert.equal(await coach.locator('svg.trend rect.bar').count(), 2, 'one bar per game');
+    assert.deepEqual(await coach.$$eval('svg.trend .tv', ts => ts.map(t => t.textContent)), ['4', '3']);
+    await coach.click('[data-act=trendStat][data-k=ftp]');
+    assert.deepEqual(await coach.$$eval('svg.trend .tv', ts => ts.map(t => t.textContent)), ['100%', '100%']);
+    await coach.click('[data-act=trendStat][data-k=pts]');
     await shot(coach, '07-player');
     await coach.click('[data-act=back]');
     await coach.click('[data-act=writeReport]');
@@ -272,7 +317,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await typePin(viewer, viewerPin);
     await viewer.waitForSelector('text=Player stats');
     const vHead = await viewer.$$eval('.card:has-text("Player stats") th', ths => ths.map(t => t.textContent.replace(/[▾▴]/, '').trim()));
-    assert.deepEqual(vHead, ['Player', 'GP', 'REB', 'AST'], 'only rebounds and assists');
+    assert.deepEqual(vHead, ['Player', 'GP', 'REB', 'OREB', 'DREB', 'AST'], 'only rebounds and assists');
     assert.equal(await viewer.locator('.tile:has-text("Record")').count(), 0, 'no scoring = no record/points');
     await shot(viewer, '07b-viewer-season');
     assert.equal(await viewer.locator('[data-tab=parents]').count(), 0);
@@ -283,7 +328,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await viewer.click('.card:has-text("Valley Christian") [data-act=openBox]');
     await viewer.waitForSelector('tr.total');
     const bHead = await viewer.$$eval('.card:has(tr.total) th', ths => ths.map(t => t.textContent));
-    assert.deepEqual(bHead.slice(0, 3), ['Player', 'REB', 'AST']);
+    assert.deepEqual(bHead.slice(0, 5), ['Player', 'REB', 'OR', 'DR', 'AST']);
     assert.equal(await viewer.textContent('.score .pts'), '–');
     assert.equal(await viewer.locator('tr[data-act=editLine]').count(), 0, 'read-only box score');
     assert.equal(await viewer.locator('[data-tab=track]').count(), 0);
@@ -301,7 +346,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.click('[data-act=tab][data-tab=season]');
     await coach.click('[data-act=refresh]');
     const avaPts = await coach.$$eval('tr:has-text("Ava Guard") td', tds => tds[2].textContent);
-    assert.equal(avaPts, '4');
+    assert.equal(avaPts, '7'); // 4 + 3 official; Pat's separate record (3 more) is not counted
 
     // Pat can see Ava's official stats.
     await pat.click('[data-act=leaveGame]');
@@ -311,7 +356,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     const saved = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
     assert.ok(saved['Game Log'].some(r => r[6] === 'Opponent' && r[7] === '23' && r[9] === 3), 'opponent rows exported');
     assert.equal(saved['Season Stats'][0][1], 'Player');
-    assert.equal(saved['Season Stats'].length, 6, 'five players who played');
+    assert.equal(saved['Season Stats'].length, 7, 'six players who played (Finn played the second game)');
 
     assert.deepEqual(errors, [], 'no page errors');
     console.log('SMOKE TEST PASSED');
