@@ -182,6 +182,8 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await parent.click('[data-act=period][data-n="5"]');
     await parent.waitForSelector('[data-act=period][data-n="6"]:text-is("2OT")');
     await tap(11, 'REB');
+    await tap(0, 'PF');
+    await parent.waitForSelector('.alert:has-text("Eli: 3 fouls")');
     await parent.waitForSelector('.end-game');
     await shot(parent, '04c-quarters');
     await parent.waitForSelector('.sync:text("All saved")');
@@ -193,7 +195,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     // Overtime-only box score: just Dev's rebound.
     await parent.click('[data-act=boxFilter][data-f=ot]');
     const otRows = await parent.$$eval('.card:has(.box-filter) tbody tr:not(.total) td:first-child', tds => tds.map(t => t.textContent));
-    assert.deepEqual(otRows, ['#11Dev Forward']);
+    assert.deepEqual(otRows, ['#0Eli Point', '#11Dev Forward']);
     await shot(parent, '05b-ot-box');
     await parent.click('[data-act=boxFilter][data-f=all]');
     await shot(parent, '05-box');
@@ -207,7 +209,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await parent.click('.modal [data-act=closeModal]');
     const benQ1 = await parent.evaluate(() => { const b = S.t.players.find(p => p.name === 'Ben Center'); return S.t.periodBoxes[1][b.id].REB; });
     assert.equal(benQ1, 2, 'fix landed in Q1');
-    assert.equal(await parent.evaluate(() => Object.keys(S.t.periodBoxes[5]).length), 1, 'OT untouched');
+    assert.equal(await parent.evaluate(() => Object.keys(S.t.periodBoxes[5]).length), 2, 'OT untouched (Eli + Dev only)');
 
     // Full play-by-play: undo an old Q1 play from the list.
     await parent.click('[data-act=gameTab][data-tab=track]');
@@ -223,6 +225,21 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await parent.click('.modal [data-act=closeModal]');
     await parent.click('[data-act=gameTab][data-tab=box]');
     await parent.waitForSelector('.sync:text("All saved")');
+    // Live bench view: the coach's open box score updates by itself while the parent taps.
+    await coach.click('[data-act=tab][data-tab=games]');
+    await coach.click('.card:has-text("Valley Christian") [data-act=openBox]');
+    await coach.waitForSelector('text=Live: updates automatically');
+    await parent.click('[data-act=gameTab][data-tab=track]');
+    await tap(11, 'AST');
+    await parent.waitForSelector('.sync:text("All saved")');
+    await coach.waitForFunction(() => {
+      const dev = S.t && S.t.players.find(p => p.name === 'Dev Forward');
+      return dev && (S.t.box[dev.id] || {}).AST === 1;
+    }, null, { timeout: 20000 });
+    await coach.waitForSelector('.alert:has-text("Eli: 3 fouls")');
+    await shot(coach, '05e-live-bench');
+    await coach.click('[data-act=leaveGame]');
+    await parent.click('[data-act=gameTab][data-tab=box]');
     await parent.click('[data-act=endGame]');
     await parent.waitForSelector('text=No games are assigned to you right now.');
 

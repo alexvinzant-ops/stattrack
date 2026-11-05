@@ -176,6 +176,14 @@ table.compare tr.book-row td { border-bottom-width: 2px; }
 .period-seg button.on { background: var(--gold); color: #1d2433; }
 .box-filter { margin: 4px 0 10px; display: flex; flex-wrap: wrap; }
 .box-filter button { flex: 1; min-width: 44px; padding: 6px 8px; }
+.alerts { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+.alert { font-size: 13px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--warn-bg); color: #6b4300; }
+.alert.bad { background: var(--bad-bg); color: var(--bad); }
+.alert.out { background: var(--bad); color: #fff; }
+.alert.muted-alert { background: #e6eaf1; color: var(--muted); }
+.live-note { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); animation: pulse 1.6s infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
 .team-fouls { font-size: 13px; opacity: .9; }
 .end-game { margin-top: 16px; border: 2px solid var(--bad); }
 .access-step { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; margin-top: 14px; }
@@ -422,6 +430,14 @@ const Queue = {
 };
 window.addEventListener('online', () => Queue.flush());
 setInterval(() => Queue.flush(), 15000);
+// Live bench view: while a live game is open, pull the latest numbers every few seconds.
+const LIVE_REFRESH_MS = 8000;
+setInterval(() => {
+  const t = S.t;
+  if (S.view !== 'game' || !t || t.mode || t.game.status !== 'live' || modalState) return;
+  if (document.visibilityState && document.visibilityState !== 'visible') return;
+  refreshGameFromServer(true);
+}, LIVE_REFRESH_MS);
 
 function syncInfo() {
   const n = Queue.count();
@@ -599,6 +615,37 @@ function periodBar() {
   return '<div class="period-bar"><div class="inner"><div class="seg period-seg">' + btns.join('') + '</div>' + fouls + '</div></div>';
 }
 
+// NFHS: team fouls reset every quarter; the 5th team foul in a quarter puts the other team in the bonus.
+const BONUS_FOULS = 5;
+function foulAlerts() {
+  const t = S.t;
+  if (t.mode || !canSeeGroup('pf')) return '';
+  const items = [];
+  const q = (t.periods || {})[t.period] || {};
+  const bonus = (fouls, who) => {
+    if (fouls >= BONUS_FOULS) items.push('<span class="alert bad">' + esc(who) + ' in the bonus</span>');
+    else if (fouls === BONUS_FOULS - 1) items.push('<span class="alert warn">1 more foul = ' + esc(who) + ' in the bonus</span>');
+  };
+  if (Object.keys(t.periods || {}).length) {
+    bonus(n0(q.oppPF), shortTeam());          // their fouls give US the bonus
+    bonus(n0(q.usPF), t.game.opponent);        // our fouls give THEM the bonus
+  }
+  gamePlayers().forEach(p => {
+    const f = n0((t.box[p.id] || {}).PF);
+    if (f >= 3) items.push('<span class="alert ' + (f >= 5 ? 'out' : f >= 4 ? 'bad' : 'warn') + '">' + esc(p.number !== '' ? '#' + p.number + ' ' : '') + esc(p.name.split(' ')[0]) + ': ' + (f >= 5 ? 'FOULED OUT' : f + ' fouls') + '</span>');
+  });
+  oppPlayerList(t.game.oppRoster, t.box).forEach(p => {
+    const f = n0((t.box[p.id] || {}).PF);
+    if (p.id !== 'opp:team' && f >= 4) items.push('<span class="alert muted-alert">Opp #' + esc(p.number) + ': ' + (f >= 5 ? 'fouled out' : f + ' fouls') + '</span>');
+  });
+  return items.length ? '<div class="alerts">' + items.join('') + '</div>' : '';
+}
+function liveNote() {
+  const t = S.t;
+  if (t.mode || t.game.status !== 'live') return '';
+  return '<p class="muted small live-note"><span class="live-dot"></span> Live: updates automatically' + (t.lastSync ? ' · last update ' + new Date(t.lastSync).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : '') + '</p>';
+}
+
 function endGameButton() {
   const t = S.t;
   if (t.mode || !t.canTrack) return '';
@@ -666,7 +713,7 @@ function viewTracker() {
     '<button class="' + (opp ? 'on' : '') + '" data-act="side" data-side="opp">' + esc(t.game.opponent) + '</button></div></div>';
   const oppNote = opp && !(t.game.oppRoster || []).length
     ? '<div class="note">Add their jersey numbers to track individuals, or just use <b>TEAM</b> for all of them.</div>' : '';
-  return sideToggle + '<div class="hint">' + hint + '</div>' + oppNote +
+  return foulAlerts() + sideToggle + '<div class="hint">' + hint + '</div>' + oppNote +
     (ps.length ? '<div class="players">' + tiles + '</div>' : '<div class="card empty">No players on the roster yet.</div>') +
     pad +
     '<div class="row" style="margin-top:12px">' + (opp ? '<button class="btn sm" data-act="oppRoster">Opponent numbers</button>' : '<button class="btn sm" data-act="whosHere">Who\'s playing?</button>') + '<span class="spacer"></span>' +
@@ -769,7 +816,7 @@ function viewGameBox(coach) {
   const whole = !t.boxFilter || t.boxFilter === 'all';
   const shown = filteredBox();
   return '<div class="card"><div class="row"><h2 class="grow" style="flex:1">' + esc(fmtDate(g.date)) + '</h2>' + statusChip(g.status) + '</div>' +
-    boxFilterBar() +
+    liveNote() + foulAlerts() + boxFilterBar() +
     (whole ? (t.canFix ? '<p class="muted small" style="margin:0 0 8px">Tap a player to fix their numbers.</p>' : '')
       : '<p class="muted small" style="margin:0 0 8px">Showing ' + (t.boxFilter === 'ot' ? 'overtime' : periodLabel(Number(t.boxFilter))) + ' only (' + shortTeam() + ' ' + teamPts(shown) + ', ' + esc(g.opponent) + ' ' + oppPts(shown) + '). Tap Game to fix numbers.</p>') +
     boxTable(t.players, shown, t.canFix && whole) +
@@ -1423,18 +1470,24 @@ async function openGame(gameId, tab, mode) {
   if (S.t.tab === 'track' && !onCourtPlayers().some(p => n0((S.t.box[p.id] || {}).GP) > 0) && S.t.players.some(p => p.active)) whosHereForm();
 }
 
-async function refreshGameFromServer() {
+let refreshing = false;
+async function refreshGameFromServer(quiet) {
   // Re-read the official totals (only when nothing is waiting to save).
   const t = S.t;
-  if (!t || Queue.count(t.game.id)) return;
+  if (!t || Queue.count(t.game.id) || refreshing) return;
+  refreshing = true;
   try {
     const r = await call('game', { gameId: t.game.id, mode: t.mode });
+    t.lastSync = Date.now();
     if (S.t !== t || Queue.count(t.game.id)) return;
+    // Only redraw when something changed, so the screen doesn't jump while someone is tapping.
+    const before = JSON.stringify([t.box, t.periods, t.game.status, t.flow]);
+    if (quiet && before === JSON.stringify([r.box || {}, t.mode ? t.periods : (r.periods || {}), r.game.status, r.flow])) return;
     t.box = r.box || {}; t.game = r.game; t.players = r.players; t.canTrack = r.canTrack; t.canFix = r.canFix; t.parentBooks = r.parentBooks || [];
     if (!t.mode) { t.periods = r.periods || {}; t.periodBoxes = r.periodBoxes || {}; if ((r.currentPeriod || 0) > t.period) t.period = r.currentPeriod; }
     saveGameLocal();
     if (!modalState) render();
-  } catch (e) { /* stay with local numbers */ }
+  } catch (e) { /* stay with local numbers */ } finally { refreshing = false; }
 }
 
 // ===========================================================================
