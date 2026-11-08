@@ -333,8 +333,7 @@ function checkGameAccess_(who, g) {
 function all_(who) {
   const s = getSettings_();
   const isCoach = !who || who.role === 'coach';
-  let appUrl = '';
-  try { appUrl = ScriptApp.getService().getUrl() || ''; } catch (e) { /* not deployed yet */ }
+  const appUrl = savedAppUrl_();
   let sheetUrl = '';
   try { sheetUrl = SpreadsheetApp.getActiveSpreadsheet().getUrl(); } catch (e) { /* ignore */ }
   return {

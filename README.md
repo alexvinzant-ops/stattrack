@@ -55,7 +55,7 @@ Each copy automatically gets its own coach PIN and an empty parents list, even i
    - **Execute as:** *Me*
    - **Who has access:** *Anyone*
 
-   Click **Deploy** and copy the **Web app URL**. That's the link for you and the parents.
+   Click **Deploy** and copy the **Web app URL**. That's the link for you and the parents. It must end in **`/exec`**. A link ending in `/dev` (from *Test deployments*) only works for you; parents get a "You need access" page.
 6. **Open the link on your phone** and sign in with your coach PIN. Tip: use **Share → Add to Home Screen** so it opens like an app.
 
 ### Updating to a newer version later

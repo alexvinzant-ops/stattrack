@@ -1257,7 +1257,8 @@ function viewParents() {
     '<li><b>After games:</b> by default, <b>nothing</b>. You can let them see just their own player, or the whole team, and pick which stats.</li></ul>' +
     '<p class="small">Tap <b>Edit</b> on a person to change this, or <b>Invite</b> to send them the link and their PIN.</p>' +
     '<p class="small muted">PINs, phone numbers, emails, and these settings are only ever shown to you.</p>' +
-    (d.appUrl ? '<div class="copybox"><input readonly value="' + esc(d.appUrl) + '" id="appUrl"><button class="btn sm" data-act="copyUrl">Copy link</button></div>' : '') + '</div>' +
+    (d.appUrl ? '<div class="copybox"><input readonly value="' + esc(d.appUrl) + '" id="appUrl"><button class="btn sm" data-act="copyUrl">Copy link</button></div>' : '') +
+    (/\/dev(\?|$)/.test(d.appUrl || '') ? '<p class="small" style="color:var(--bad,#c0392b)"><b>This is a test link (it ends in /dev).</b> Only you can open it; parents will see "You need access". In Apps Script, use <b>Deploy → Manage deployments</b>, copy the link that ends in <b>/exec</b>, and open the app from that link instead.</p>' : '') + '</div>' +
     '<div class="row wrap-row" style="margin-top:14px"><span class="spacer"></span>' +
     (toEmail.length ? '<button class="btn" data-act="emailAll">Email invites (' + toEmail.length + ')</button>' : '') +
     '<button class="btn primary" data-act="editParent">+ Add person</button></div>' +
