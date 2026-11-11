@@ -139,8 +139,8 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     // Mistake + undo
     await tap(5, '3M');
     await parent.click('.plays [data-act=undo] >> nth=0');
-    await parent.click('[data-act=opp][data-d="2"]');
-    await parent.click('[data-act=opp][data-d="3"]');
+    await parent.click('[data-act=oppStat][data-code="2M"]');
+    await parent.click('[data-act=oppStat][data-code="3M"]');
     assert.equal(await parent.locator('.pbtn').count(), 5, 'absent player hidden');
 
     // Gym Wi-Fi drops: plays are kept and sent later.
@@ -153,22 +153,23 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     let score = await parent.$$eval('.score .pts', els => els.map(e => e.textContent));
     assert.deepEqual(score, ['8', '5']);
 
-    // Opponent stats: switch sides, add a number, track individuals and the team.
-    await parent.click('[data-act=side][data-side=opp]');
-    assert.equal(await parent.locator('.pbtn').count(), 4, '3 numbers + TEAM');
-    await parent.click('[data-act=oppRoster]');
+    // Opponent stats: add a number via the Player select, track individuals and the team.
+    assert.equal(await parent.locator('.pbtn').count(), 5, 'only our players are tiles');
+    assert.equal(await parent.locator('[data-act=side]').count(), 0, 'no side toggle');
+    assert.equal(await parent.locator('.panel.opp select[data-oppsel] option').count(), 5, 'Team + 3 numbers + Add numbers');
+    await parent.selectOption('select[data-oppsel]', '__add');
     await parent.fill('textarea[name=roster]', '4 Smith\n12\n23\n30');
     await parent.click('form[data-form=oppRoster] button[type=submit]');
-    await parent.waitForSelector('.pbtn:has(.n:text-is("#30"))');
-    const oppTap = async (label, code) => {
-      await parent.click(`.pbtn:has(.n:text-is("${label}"))`);
-      await parent.click(`.sbtn[data-code="${code}"]`);
+    await parent.waitForSelector('select[data-oppsel] option[value="opp:30"]', { state: 'attached' });
+    const oppTap = async (pid, code) => {
+      await parent.selectOption('select[data-oppsel]', pid);
+      await parent.click(`[data-act=oppStat][data-code="${code}"]`);
     };
-    await oppTap('#23', '3M'); await oppTap('#30', '2X'); await oppTap('TEAM', 'TO'); await oppTap('#4', 'PF');
+    await oppTap('opp:23', '3M'); await oppTap('opp:30', '2X'); await oppTap('opp:team', 'TO'); await oppTap('opp:4', 'PF');
     await shot(parent, '04b-opponent');
     score = await parent.$$eval('.score .pts', els => els.map(e => e.textContent));
     assert.deepEqual(score, ['8', '8'], 'opponent 3 adds to their score');
-    await parent.click('[data-act=side][data-side=us]');
+    assert.equal(await parent.inputValue('select[data-oppsel]'), 'opp:team', 'selection resets after a tap');
     await tap(3, 'FM');
     await parent.waitForSelector('.sync:text("All saved")');
 
@@ -255,7 +256,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await pat.waitForSelector('text=Your record of Ava');
     if (await pat.locator('form[data-form=whosHere]').count()) await pat.click('form[data-form=whosHere] button[type=submit]');
     assert.equal(await pat.locator('.pbtn').count(), 1, 'only Ava');
-    assert.equal(await pat.locator('[data-act=side]').count(), 0, 'no opponent tracking');
+    assert.equal(await pat.locator('.panel.opp, [data-act=oppStat]').count(), 0, 'no opponent tracking');
     assert.equal(await pat.locator('.sbtn[data-code=DREB]').count(), 0, 'only the stats the coach allowed');
     assert.equal(await pat.locator('.sbtn').count(), 7, '6 shooting buttons + STL');
     await pat.click('.pbtn'); await pat.click('.sbtn[data-code="3M"]');
@@ -276,7 +277,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await shot(coach, '06-season');
     await coach.waitForSelector('text=Us vs. opponents');
     const oppFg = await coach.$$eval('tr:has(td:text-is("FG%")) td', tds => tds.map(t => t.textContent));
-    assert.deepEqual(oppFg, ['FG%', '100.0', '50.0']); // 4-4 after undoing the Q1 miss
+    assert.deepEqual(oppFg, ['FG%', '100.0', '75.0']); // opp 3-4: team +2 and +3 now count as made shots
     // Printable box score (coach only).
     await coach.click('[data-act=tab][data-tab=games]');
     await coach.click('.card:has-text("Valley Christian") [data-act=openBox]');

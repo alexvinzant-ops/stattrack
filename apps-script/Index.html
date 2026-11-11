@@ -161,6 +161,27 @@ label.check input { width: 22px; height: 22px; flex: none; }
 .sbtn.miss { background: var(--bad-bg); border-color: #efb4ad; color: var(--bad); }
 .sbtn.armed { outline: 3px solid var(--accent); outline-offset: 1px; background: var(--sel); color: var(--ink); }
 .sbtn:active { filter: brightness(.94); }
+.panel { margin-top: 12px; padding: 10px; border-radius: 14px; border: 1px solid var(--line); }
+.panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; min-height: 36px; }
+.panel-head h2 { margin: 0; font-size: 17px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-head label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.panel-head select { min-height: 44px; max-width: 150px; font-size: 15px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); padding: 0 6px; }
+.panel.opp { background: #e9eef6; border-color: #c9d4e6; }
+.panel.us .players { margin-top: 0; }
+.spad { display: grid; grid-template-columns: 1.25fr 1fr 1fr 1.25fr; grid-auto-rows: minmax(52px, auto); gap: 8px; margin-top: 12px; }
+.panel .spad { margin-top: 10px; }
+.spad button { border-radius: 12px; font-weight: 800; touch-action: manipulation; min-height: 44px; line-height: 1.1; padding: 4px; }
+.spad .big { min-height: 110px; color: #fff; border: 0; font-size: 15px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.spad .big b { font-size: 30px; line-height: 1; }
+.spad .g2m { grid-area: 1 / 1 / 3 / 2; } .spad .g2x { grid-area: 3 / 1 / 5 / 2; } .spad .g3m { grid-area: 1 / 4 / 3 / 5; } .spad .g3x { grid-area: 3 / 4 / 5 / 5; }
+.spad .big.g2m { background: #3a8a5c; } .spad .g3m { background: #24573d; }
+.spad .g2x { background: #c4404a; } .spad .g3x { background: #7a1d24; }
+.spad .sm { background: var(--card); border: 2px solid var(--line); font-size: 15px; color: var(--ink); grid-column: span 1; }
+.spad .sm.ft { background: #fdebd9; border-color: #f0c9a0; color: #b85c1e; }
+.panel.opp .spad .sm.ft { background: #b85c1e; border-color: #b85c1e; color: #fff; }
+.spad .sm.foul { grid-column: 1 / -1; }
+.spad .armed { outline: 3px solid var(--accent); outline-offset: 1px; }
+.spad button:active { filter: brightness(.92); }
 .plays .list-item { padding: 9px 0; }
 .side-seg { width: 100%; display: flex; }
 .personal-bar { grid-template-columns: 1fr auto !important; text-align: left; }
@@ -668,7 +689,6 @@ function anyLabel(id) {
 }
 function onCourtPlayers() {
   const t = S.t;
-  if (t.side === 'opp') return oppPlayers();
   const ps = gamePlayers();
   const any = ps.some(p => n0((t.box[p.id] || {}).GP) > 0);
   return any ? ps.filter(p => n0((t.box[p.id] || {}).GP) > 0 || hasAny(t.box[p.id])) : ps.filter(p => p.active);
@@ -689,7 +709,7 @@ function viewGame() {
     '<div class="team"><div class="nm">' + esc(S.teamName) + '</div><div class="pts">' + (canSeeGroup('scoring') ? teamPts(t.box) : '–') + '</div></div>' +
     '<div class="dash">–</div>' +
     '<div class="team"><div class="nm">' + esc(g.opponent) + '</div><div class="pts">' + (canSeeGroup('scoring') ? oppPts(t.box) : '–') + '</div>' +
-    (t.canTrack && canTrackGroup('opp') ? '<div class="opp-pad" aria-label="Opponent points">' : '<div class="hidden">') + '<button data-act="opp" data-d="1">+1</button><button data-act="opp" data-d="2">+2</button><button data-act="opp" data-d="3">+3</button><button data-act="opp" data-d="-1" ' + (oppPts(t.box) ? '' : 'disabled') + '>−1</button></div></div>' +
+    '</div>' +
     '</div></div>';
   const head = topBar(gameTitle(g), left, t.canTrack ? syncHtml() : '', tabs) + scoreboard + (t.canTrack && t.tab === 'track' ? periodBar() : '');
   const body = t.tab === 'track' && t.canTrack ? viewTracker() : viewGameBox(coach);
@@ -774,44 +794,62 @@ function playsModal() {
 function viewTracker() {
   const t = S.t;
   const ps = onCourtPlayers();
-  const opp = t.side === 'opp';
+  const personal = isPersonal();
   const sel = t.sel && findAnyPlayer(t.sel);
   const armed = t.armed && TAPS[t.armed];
   let hint;
   if (sel) hint = '<b>' + esc(anyLabel(sel.id)) + '</b>: tap a stat';
   else if (armed) hint = '<b>' + esc(armed.label) + '</b>: tap the player';
-  else hint = opp ? 'Tracking <b>' + esc(t.game.opponent) + '</b>: tap a number, then a stat' : 'Tap a player, then a stat';
+  else hint = 'Tap a player, then a stat';
   const tiles = ps.map(p => {
     const l = line(t.box[p.id]);
     const fc = l.PF >= 5 ? 'foul5' : l.PF >= 4 ? 'foul4' : '';
     return '<button class="pbtn ' + (p.id === t.sel ? 'sel' : '') + '" data-act="pickPlayer" data-id="' + esc(p.id) + '">' +
-      '<div class="n">' + (p.number !== '' ? '#' + esc(p.number) : (p.id === 'opp:team' ? 'TEAM' : '–')) + '</div>' +
-      '<div class="nm">' + esc(p.id === 'opp:team' ? 'Unknown #' : p.name) + '</div>' +
+      '<div class="n">' + (p.number !== '' ? '#' + esc(p.number) : '–') + '</div>' +
+      '<div class="nm">' + esc(p.name) + '</div>' +
       '<div class="ln">' + l.pts + ' pts · <span class="' + fc + '">' + l.PF + ' F</span></div></button>';
   }).join('');
-  const b = (code, top, bottom, cls) => '<button class="sbtn ' + (cls || '') + (t.armed === code ? ' armed' : '') + '" data-act="stat" data-code="' + code + '">' + top + (bottom ? '<small>' + bottom + '</small>' : '') + '</button>';
   // Only the stat buttons this person is allowed to enter.
   const ok = code => canTrackGroup(TAP_GROUP[code]);
-  const btns = [['2M', '2PT', 'MADE', 'make'], ['2X', '2PT', 'MISS', 'miss'], ['3M', '3PT', 'MADE', 'make'], ['3X', '3PT', 'MISS', 'miss'],
-    ['FM', 'FT', 'MADE', 'make'], ['FX', 'FT', 'MISS', 'miss'], ['OREB', 'O-REB', 'OFFENSE'], ['DREB', 'D-REB', 'DEFENSE'],
-    ['AST', 'AST'],
-    ['STL', 'STL'], ['BLK', 'BLK'], ['TO', 'TO', 'TURNOVER'], ['PF', 'FOUL']].filter(x => ok(x[0]));
-  const limited = btns.length < 13;
-  const pad = (limited ? '<p class="muted small" style="text-align:center;margin:10px 0 0">You\'re entering: <b>' + esc(TRACK_GROUP_KEYS.filter(canTrackGroup).filter(g => g !== 'opp').map(groupName).join(', ') || 'no stats') + '</b></p>' : '') +
-    (btns.length ? '<div class="pad">' + btns.map(x => b(x[0], x[1], x[2], x[3])).join('') + '</div>' : '<div class="card empty">The coach hasn\'t given you any stats to enter.</div>');
+  // Stat pad: big shot buttons left/right, small buttons in the middle, FOUL across the bottom.
+  const big = (act, code, cls, side, top, bottom, armedCls) => ok(code)
+    ? '<button class="big ' + cls + ' ' + side + (armedCls ? ' armed' : '') + (act === 'stat' ? ' sbtn' : ' obtn') + '" data-act="' + act + '" data-code="' + code + '"><b>' + top + '</b>' + bottom + '</button>' : '';
+  const small = (act, code, label, cls, armedCls) => ok(code)
+    ? '<button class="sm ' + (cls || '') + (armedCls ? ' armed' : '') + (act === 'stat' ? ' sbtn' : ' obtn') + '" data-act="' + act + '" data-code="' + code + '">' + label + '</button>' : '';
+  const padHtml = (act, smalls, foul) => {
+    const A = c => act === 'stat' && t.armed === c;
+    const html = big(act, '2M', 'g2m', 'c-left', '+2', 'PT FG', A('2M')) + big(act, '3M', 'g3m', 'c-right', '+3', 'PT FG', A('3M')) +
+      big(act, '2X', 'g2x', 'c-left', '2PT', 'Miss', A('2X')) + big(act, '3X', 'g3x', 'c-right', '3PT', 'Miss', A('3X')) +
+      smalls.map(x => small(act, x[0], x[1], x[2], A(x[0]))).join('') + (foul ? small(act, 'PF', 'FOUL', 'foul', A('PF')) : '');
+    return html;
+  };
+  const usSmalls = [['FM', 'FT ✓', 'ft'], ['FX', 'FT ✗', 'ft'], ['OREB', 'O-REB'], ['DREB', 'D-REB'], ['AST', 'AST'], ['STL', 'STL'], ['TO', 'TO'], ['BLK', 'BLK']];
+  const usHtml = padHtml('stat', usSmalls, true);
+  const usCount = ['2M', '2X', '3M', '3X', 'FM', 'FX', 'OREB', 'DREB', 'AST', 'STL', 'TO', 'BLK', 'PF'].filter(ok).length;
+  const limited = usCount < 13;
+  const usPad = (limited ? '<p class="muted small" style="text-align:center;margin:10px 0 0">You\'re entering: <b>' + esc(TRACK_GROUP_KEYS.filter(canTrackGroup).filter(g => g !== 'opp').map(groupName).join(', ') || 'no stats') + '</b></p>' : '') +
+    (usCount ? '<div class="spad">' + usHtml + '</div>' : '<div class="card empty">The coach hasn\'t given you any stats to enter.</div>');
+  const usPanel = '<div class="panel us"><div class="panel-head"><h2>' + esc(shortTeam()) + '</h2></div>' +
+    '<div class="hint">' + hint + '</div>' +
+    (ps.length ? '<div class="players">' + tiles + '</div>' : '<div class="card empty">No players on the roster yet.</div>') +
+    usPad + '</div>';
+  let oppPanel = '';
+  if (!personal && canTrackGroup('opp')) {
+    const oppSel = t.oppSel || 'opp:team';
+    const opts = '<option value="opp:team"' + (oppSel === 'opp:team' ? ' selected' : '') + '>Team</option>' +
+      oppPlayerList(t.game.oppRoster, t.box).filter(p => p.id !== 'opp:team').map(p => '<option value="' + esc(p.id) + '"' + (p.id === oppSel ? ' selected' : '') + '>#' + esc(p.number) + (p.name ? ' ' + esc(p.name) : '') + '</option>').join('') +
+      '<option value="__add">Add numbers…</option>';
+    const oppSmalls = [['FM', 'FT ✓', 'ft'], ['FX', 'FT ✗', 'ft'], ['REB', 'REB'], ['TO', 'TO'], ['STL', 'STL'], ['BLK', 'BLK'], ['AST', 'AST'], ['PF', 'FOUL']];
+    oppPanel = '<div class="panel opp"><div class="panel-head"><h2>' + esc(t.game.opponent) + '</h2>' +
+      '<label>Player <select data-oppsel aria-label="Opponent player">' + opts + '</select></label></div>' +
+      '<div class="spad">' + padHtml('oppStat', oppSmalls, false) + '</div></div>';
+  }
   const plays = t.plays.slice(0, 6);
   const playsHtml = plays.length ? plays.map(playRow).join('') +
     '<button class="btn big" style="margin-top:10px" data-act="allPlays">All plays this game (' + t.plays.length + ')</button>'
     : '<div class="muted small" style="padding:8px 0">Plays you enter will show here so you can undo mistakes.</div>';
-  const sideToggle = isPersonal() || !canTrackGroup('opp') ? '' : '<div class="row" style="margin-top:12px"><div class="seg side-seg">' +
-    '<button class="' + (opp ? '' : 'on') + '" data-act="side" data-side="us">' + esc(shortTeam()) + '</button>' +
-    '<button class="' + (opp ? 'on' : '') + '" data-act="side" data-side="opp">' + esc(t.game.opponent) + '</button></div></div>';
-  const oppNote = opp && !(t.game.oppRoster || []).length
-    ? '<div class="note">Add their jersey numbers to track individuals, or just use <b>TEAM</b> for all of them.</div>' : '';
-  return foulAlerts() + sideToggle + '<div class="hint">' + hint + '</div>' + oppNote +
-    (ps.length ? '<div class="players">' + tiles + '</div>' : '<div class="card empty">No players on the roster yet.</div>') +
-    pad +
-    '<div class="row" style="margin-top:12px">' + (opp ? '<button class="btn sm" data-act="oppRoster">Opponent numbers</button>' : '<button class="btn sm" data-act="whosHere">Who\'s playing?</button>') + '<span class="spacer"></span>' +
+  return foulAlerts() + usPanel + oppPanel +
+    '<div class="row" style="margin-top:12px"><button class="btn sm" data-act="whosHere">Who\'s playing?</button><span class="spacer"></span>' +
     (t.sel || t.armed ? '<button class="btn sm" data-act="clearSel">Cancel selection</button>' : '') + '</div>' +
     '<div class="card plays"><h2>Recent plays</h2>' + playsHtml + '</div>' +
     endGameButton();
@@ -1585,6 +1623,16 @@ function recordTap(code, playerId) {
   render();
 }
 
+// Opponent buttons record at once, to the chosen opponent number (default: the whole team). Our own selection is untouched.
+function recordOppTap(code) {
+  const t = S.t, tap = TAPS[code];
+  if (!tap || !canTrackGroup('opp') || !canTrackGroup(TAP_GROUP[code])) return;
+  const pid = t.oppSel || 'opp:team';
+  commit(pid, tap.ev.map(([stat, d]) => mkEv(pid, stat, d)), tap.label);
+  t.oppSel = 'opp:team';
+  render();
+}
+
 async function openGame(gameId, tab, mode) {
   mode = mode === 'personal' ? 'personal' : '';
   const prevView = S.view;
@@ -1874,7 +1922,7 @@ const ACTS = {
     toast('Now tracking ' + periodLabel(n));
   },
   oppRoster() { oppRosterForm(); },
-  side(el) { S.t.side = el.dataset.side; S.t.sel = null; render(); },
+  oppStat(el) { recordOppTap(el.dataset.code); },
   editLine(el) { lineEditor(el.dataset.id); },
   step(el) {
     const t = S.t, id = el.dataset.id, k = el.dataset.k, d = Number(el.dataset.d);
@@ -2062,6 +2110,13 @@ document.addEventListener('click', ev => {
   if (el.dataset.act === 'overlay' && ev.target !== el) return; // click inside the dialog
   ev.preventDefault();
   fn(el, ev);
+});
+document.addEventListener('change', ev => {
+  const sel = ev.target.closest && ev.target.closest('select[data-oppsel]');
+  if (!sel || !S.t) return;
+  if (sel.value === '__add') { S.t.oppSel = 'opp:team'; render(); oppRosterForm(); return; }
+  S.t.oppSel = sel.value;
+  render();
 });
 document.addEventListener('submit', async ev => {
   const f = ev.target.closest('form[data-form]');
