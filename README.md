@@ -109,6 +109,8 @@ Want a shorter link? Make a free one at [tinyurl.com](https://tinyurl.com) with 
 
 **Only the coach PIN** can see PINs, add or remove people, change access, delete games, change team settings, or export to the spreadsheet. Unticking **Can sign in** turns someone off without deleting them.
 
+**Game-end emails:** when a parent or other non-coach taps submit and a game becomes final, you get one email with the final score, scoring by quarter, and each player's line (PTS, REB, AST, STL, FG, 3P, FT, PF). Under **Roster → Team settings** you can turn this off (**Email me when a parent finishes a game**) or send it to a different address (**Send to**; blank means your Google account). The coach ending a game never sends an email. These are stored as **Game Emails** and **Notify Email** on the Settings tab.
+
 ### Game day (Parent, or Coach)
 1. Open the link and enter your PIN. Your assigned game appears. Tap **Start tracking**.
 2. Uncheck anyone who isn't playing today.
@@ -128,7 +130,8 @@ Want a shorter link? Make a free one at [tinyurl.com](https://tinyurl.com) with 
 - **Player trends:** tap a player (Season tab) to see a bar chart of their points, rebounds, assists, steals, turnovers, fouls, FG% or FT% game by game, with the season average. Parents allowed to see their own player get the same chart.
 - **Live bench view:** open a live game's box score and it updates by itself every few seconds while a parent keeps stats. Alerts show players at 3+ fouls and when either team is in the bonus (5th team foul in a quarter).
 - **Printable box score:** open any game's **Box score** and tap **🖨 Printable box score**, then **Print / Save as PDF**. It's a clean one-page sheet with scoring by quarter and both teams' box scores (coach only).
-- **Games tab:** each game's score and result. **Box score** lets you correct anything, even after a game is final. **Edit** changes the date, opponent, or assigned parent.
+- **Results tab:** finished games, newest first, grouped by month, each with a W/L/T chip and the score. Tap one to open its box score. Filter by **All / Wins / Losses**; the record is shown at the top (only if you allow scoring to be seen).
+- **Games tab:** upcoming and in-progress games. **Box score** lets you correct anything, even after a game is final. **Edit** changes the date, opponent, or assigned parent.
 - **Update stats in Google Sheet** writes **Season Stats** and **Game Log** tabs in your spreadsheet for sorting, charts, or printing.
 
 ---

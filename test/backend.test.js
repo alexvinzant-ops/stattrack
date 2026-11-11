@@ -14,7 +14,7 @@ function setup() {
 }
 
 let n = 0;
-const ev = (playerId, stat, delta = 1) => ({ id: 'e' + (++n), playerId, stat, delta, time: new Date().toISOString() });
+const ev = (playerId, stat, delta = 1, period) => ({ id: 'e' + (++n), playerId, stat, delta, time: new Date().toISOString(), ...(period ? { period } : {}) });
 
 function seed(t) {
   let all = t.coach('addPlayers', { list: [{ number: '3', name: 'Ava Guard' }, { number: '23', name: 'Ben Center' }] });
@@ -514,4 +514,108 @@ test('offensive and defensive rebounds are separate stats in the rebounds group'
   assert.deepEqual(t.call(sam.pin, 'all').boxes[g1.id][ava.id], { OREB: 1, DREB: 2 });
   t.coach('saveParent', { id: sam.id, name: sam.name, perms: { viewStats: true }, viewGroups: ['ast'] });
   assert.equal(t.call(sam.pin, 'all').boxes[g1.id][ava.id], undefined);
+});
+
+// ---- game-end emails ----
+
+function playGame(t, s) {
+  t.call(s.pat.pin, 'record', { gameId: s.g1.id, events: [
+    ev(s.ava.id, 'GP'), ev(s.ben.id, 'GP'),
+    ev(s.ava.id, 'FG3M', 1, 1), ev(s.ava.id, 'FG3A', 1, 1), ev(s.ava.id, 'FG2M', 2, 1), ev(s.ava.id, 'FG2A', 3, 1),
+    ev(s.ava.id, 'REB'), ev(s.ava.id, 'AST'), ev(s.ava.id, 'PF'),
+    ev(s.ben.id, 'FTM', 2, 2), ev(s.ben.id, 'FTA', 3, 2), ev(s.ben.id, 'OREB'), ev(s.ben.id, 'DREB'), ev(s.ben.id, 'STL'),
+    ev('opp:team', 'OPP', 4, 1), ev('opp:7', 'FG2M', 2, 2),
+  ] });
+}
+
+test('a parent ending a game emails the coach a summary', () => {
+  const t = setup();
+  const s = seed(t);
+  playGame(t, s);
+  assert.equal(t.gas.mails.length, 0);
+  t.call(s.pat.pin, 'setStatus', { gameId: s.g1.id, status: 'final' });
+  assert.equal(t.gas.mails.length, 1);
+  const m = t.gas.mails[0];
+  assert.equal(m.to, 'coach@example.com');
+  assert.equal(m.subject, 'Final: My Team 9 \u2013 Valley 8');
+  assert.match(m.body, /2026-11-14 vs Valley/);
+  assert.match(m.body, /Submitted by: Pat Parent/);
+  assert.match(m.body, /Final score: 9\u20138 \(W\)/);
+  assert.match(m.body, /Q1: 7\u20134/);
+  assert.match(m.body, /Q2: 2\u20134/);
+  assert.match(m.body, /#3 Ava Guard: 7 PTS, 1 REB, 1 AST, 0 STL, FG 3-4, 3P 1-1, FT 0-0, PF 1/);
+  assert.match(m.body, /#23 Ben Center: 2 PTS, 2 REB, 0 AST, 1 STL, FG 0-0, 3P 0-0, FT 2-3, PF 0/);
+  assert.match(m.body, /http:\/\/localhost:8080/);
+});
+
+test('the coach ending a game sends no email', () => {
+  const t = setup();
+  const s = seed(t);
+  t.coach('setStatus', { gameId: s.g1.id, status: 'final' });
+  assert.equal(t.gas.mails.length, 0);
+});
+
+test('game emails can be turned off, and unplayed players are left out', () => {
+  const t = setup();
+  const s = seed(t);
+  assert.equal(t.coach('all').settings.gameEmails, true);
+  assert.equal(t.coach('saveSettings', { gameEmails: false }).settings.gameEmails, false);
+  t.call(s.pat.pin, 'setStatus', { gameId: s.g1.id, status: 'final' });
+  assert.equal(t.gas.mails.length, 0);
+  t.coach('saveSettings', { gameEmails: true });
+  t.coach('setStatus', { gameId: s.g1.id, status: 'live' });
+  playGame(t, s);
+  t.call(s.pat.pin, 'setStatus', { gameId: s.g1.id, status: 'final' });
+  assert.equal(t.gas.mails.length, 1);
+  const g2mail = t.gas.mails[0];
+  assert.doesNotMatch(g2mail.body, /opp:/);
+});
+
+test('a notify email override is used, validated, and hidden from non-coaches', () => {
+  const t = setup();
+  const s = seed(t);
+  assert.throws(() => t.coach('saveSettings', { notifyEmail: 'nope' }), /doesn't look right/);
+  const all = t.coach('saveSettings', { notifyEmail: 'assistant@example.org' });
+  assert.equal(all.settings.notifyEmail, 'assistant@example.org');
+  t.call(s.pat.pin, 'setStatus', { gameId: s.g1.id, status: 'final' });
+  assert.equal(t.gas.mails.length, 1);
+  assert.equal(t.gas.mails[0].to, 'assistant@example.org');
+  assert.equal(t.coach('saveSettings', { notifyEmail: '' }).settings.notifyEmail, '');
+  // Non-coach 'all' payloads never include it (settings come from all_ with a non-coach).
+  const ctx = t.gas.context;
+  const viewer = ctx.all_({ role: 'viewer', id: 'x', name: 'X', perms: { viewGroups: [], viewStats: true } });
+  assert.equal(viewer.settings.notifyEmail, undefined);
+  assert.equal(viewer.settings.gameEmails, undefined);
+});
+
+test('re-finalizing sends one email per change to final, from non-coach users only', () => {
+  const t = setup();
+  const s = seed(t);
+  const { sam } = s;
+  t.coach('saveParent', { id: sam.id, name: sam.name, perms: { manage: true } });
+  t.call(s.pat.pin, 'setStatus', { gameId: s.g1.id, status: 'final' });
+  assert.equal(t.gas.mails.length, 1);
+  // Coach reopens and re-finalizes: no mail.
+  t.coach('setStatus', { gameId: s.g1.id, status: 'live' });
+  t.coach('setStatus', { gameId: s.g1.id, status: 'final' });
+  assert.equal(t.gas.mails.length, 1);
+  // Setting final again while already final: no mail.
+  t.call(s.sam.pin, 'setStatus', { gameId: s.g1.id, status: 'final' });
+  assert.equal(t.gas.mails.length, 1);
+  // Coach sets live, then a manage user sets final: one more.
+  t.coach('setStatus', { gameId: s.g1.id, status: 'live' });
+  t.call(s.sam.pin, 'setStatus', { gameId: s.g1.id, status: 'final' });
+  assert.equal(t.gas.mails.length, 2);
+});
+
+test('a mail failure does not stop a game from ending', () => {
+  const gas = createGas({ mailFails: true });
+  gas.context.setup();
+  const pin = gas.sheets.Settings.data.find(r => r[0] === 'Coach PIN')[1];
+  const t = { gas, coach: (action, data) => gas.api({ pin, action, data }), call: (p, action, data) => gas.api({ pin: p, action, data }) };
+  const s = seed(t);
+  const r = t.call(s.pat.pin, 'setStatus', { gameId: s.g1.id, status: 'final' });
+  assert.equal(r.status, 'final');
+  assert.equal(gas.mails.length, 0);
+  assert.equal(t.coach('all').games.find(g => g.id === s.g1.id).status, 'final');
 });

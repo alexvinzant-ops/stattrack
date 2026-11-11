@@ -278,9 +278,19 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.waitForSelector('text=Us vs. opponents');
     const oppFg = await coach.$$eval('tr:has(td:text-is("FG%")) td', tds => tds.map(t => t.textContent));
     assert.deepEqual(oppFg, ['FG%', '100.0', '75.0']); // opp 3-4: team +2 and +3 now count as made shots
-    // Printable box score (coach only).
+    // Results tab: finished games live here, not on the Games tab.
+    await coach.click('[data-act=tab][data-tab=results]');
+    await coach.waitForSelector('.card:has-text("Valley Christian") .chip.win:text-is("W")');
+    assert.match(await coach.textContent('.card:has-text("Valley Christian")'), /11–8/);
+    await shot(coach, '09b-results');
+    await coach.click('[data-act=resultsFilter][data-f=losses]');
+    await coach.waitForSelector('text=No losses yet.');
+    await coach.click('[data-act=resultsFilter][data-f=all]');
     await coach.click('[data-act=tab][data-tab=games]');
-    await coach.click('.card:has-text("Valley Christian") [data-act=openBox]');
+    assert.equal(await coach.locator('.card:has-text("Valley Christian")').count(), 0, 'final games are not on the Games tab');
+    // Printable box score (coach only).
+    await coach.click('[data-act=tab][data-tab=results]');
+    await coach.click('.card[data-act=openBox]:has-text("Valley Christian")');
     await coach.click('[data-act=printBox]');
     await coach.waitForSelector('.print-page h1');
     assert.equal(await coach.textContent('.print-page h1'), 'My Team 11, Valley Christian 8');
@@ -326,7 +336,8 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     assert.equal(await viewer.locator('text=Google Sheet').count(), 0);
     await viewer.click('[data-act=tab][data-tab=games]');
     assert.equal(await viewer.locator('[data-act=editGame]').count(), 0);
-    await viewer.click('.card:has-text("Valley Christian") [data-act=openBox]');
+    await viewer.click('[data-act=tab][data-tab=results]');
+    await viewer.click('.card[data-act=openBox]:has-text("Valley Christian")');
     await viewer.waitForSelector('tr.total');
     const bHead = await viewer.$$eval('.card:has(tr.total) th', ths => ths.map(t => t.textContent));
     assert.deepEqual(bHead.slice(0, 5), ['Player', 'REB', 'OR', 'DR', 'AST']);

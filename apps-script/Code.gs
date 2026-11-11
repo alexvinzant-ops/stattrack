@@ -299,8 +299,91 @@ function setStatus_(who, data) {
     const g = findGame_(data.gameId);
     checkGameAccess_(who, g);
     updateGameField_(g.id, 'Status', status);
+    if (status === 'final' && g.status !== 'final' && who.role !== 'coach') notifyGameFinal_(who, g);
     return { ok: true, status: status };
   });
+}
+
+/** Emails the coach when someone else ends a game. Never throws: a mail problem must not block ending the game. */
+function notifyGameFinal_(who, g) {
+  try {
+    const s = getSettings_();
+    if (!s.gameEmails) return;
+    const to = s.notifyEmail || Session.getEffectiveUser().getEmail();
+    if (!to) return;
+    const t = gameTotals_(g);
+    MailApp.sendEmail({
+      to: to,
+      subject: 'Final: ' + s.teamName + ' ' + t.us + ' \u2013 ' + g.opponent + ' ' + t.them,
+      body: gameSummaryText_(g, who),
+      name: s.teamName,
+    });
+  } catch (e) {
+    Logger.log('Game email failed: ' + e);
+  }
+}
+
+/** Points, rebounds etc. for one stat line. */
+function statLine_(b) {
+  const n = k => Number(b[k]) || 0;
+  return {
+    pts: 2 * n('FG2M') + 3 * n('FG3M') + n('FTM'),
+    reb: n('REB') + n('OREB') + n('DREB'),
+    ast: n('AST'), stl: n('STL'), pf: n('PF'),
+    fgm: n('FG2M') + n('FG3M'), fga: n('FG2A') + n('FG3A'),
+    tpm: n('FG3M'), tpa: n('FG3A'), ftm: n('FTM'), fta: n('FTA'),
+  };
+}
+
+function gameTotals_(g) {
+  const box = boxes_(g.id)[g.id] || {};
+  let us = 0, them = 0;
+  Object.keys(box).forEach(k => {
+    if (k === TEAM_KEY) them += Number(box[k].OPP) || 0;
+    else if (OPP_ID.test(k)) them += statLine_(box[k]).pts + (Number(box[k].OPP) || 0);
+    else us += statLine_(box[k]).pts;
+  });
+  return { us: us, them: them };
+}
+
+/** Plain-text game summary used in the game-end email. `who` (optional) is the person who ended the game. */
+function gameSummaryText_(g, who) {
+  const box = boxes_(g.id)[g.id] || {};
+  const t = gameTotals_(g);
+  const names = {};
+  listPlayers_().forEach(p => { names[p.id] = p; });
+  const lines = [];
+  lines.push(g.date + ' ' + (g.location === 'away' ? '@' : 'vs') + ' ' + g.opponent);
+  if (who && who.name) lines.push('Submitted by: ' + who.name);
+  lines.push('');
+  lines.push('Final score: ' + t.us + '\u2013' + t.them + ' (' + (t.us > t.them ? 'W' : t.us < t.them ? 'L' : 'T') + ')');
+  const per = periods_(g.id).periods;
+  const qs = Object.keys(per).map(Number).sort((a, b) => a - b);
+  if (qs.length) {
+    lines.push('');
+    lines.push('By quarter:');
+    qs.forEach(q => { lines.push('  ' + (q > 4 ? 'OT' + (q - 4 > 1 ? q - 4 : '') : 'Q' + q) + ': ' + per[q].us + '\u2013' + per[q].opp); });
+  }
+  const rows = [];
+  Object.keys(box).forEach(id => {
+    if (id === TEAM_KEY || OPP_ID.test(id)) return;
+    const b = box[id];
+    const played = (Number(b.GP) || 0) > 0 || Object.keys(b).some(k => Number(b[k]) !== 0);
+    if (!played) return;
+    const p = names[id] || { number: '', name: 'Removed player' };
+    const l = statLine_(b);
+    rows.push({ number: p.number, text: (p.number ? '#' + p.number + ' ' : '') + p.name + ': ' + l.pts + ' PTS, ' + l.reb + ' REB, ' + l.ast + ' AST, ' + l.stl + ' STL, FG ' + l.fgm + '-' + l.fga + ', 3P ' + l.tpm + '-' + l.tpa + ', FT ' + l.ftm + '-' + l.fta + ', PF ' + l.pf });
+  });
+  rows.sort((a, b) => (Number(a.number) || 0) - (Number(b.number) || 0));
+  if (rows.length) {
+    lines.push('');
+    lines.push('Players:');
+    rows.forEach(r => lines.push('  ' + r.text));
+  }
+  let url = '';
+  try { url = ScriptApp.getService().getUrl() || ''; } catch (e) { /* ignore */ }
+  if (url) { lines.push(''); lines.push('Open the app: ' + url); }
+  return lines.join('\n');
 }
 
 /** Opponent jersey numbers (and optional names) for one game. Anyone who can track the game can set them. */
@@ -338,7 +421,9 @@ function all_(who) {
   try { sheetUrl = SpreadsheetApp.getActiveSpreadsheet().getUrl(); } catch (e) { /* ignore */ }
   return {
     me: who ? me_(who) : { role: 'coach', name: 'Coach', teamName: s.teamName, perms: ALL_PERMS },
-    settings: { teamName: s.teamName, season: s.season },
+    settings: isCoach
+      ? { teamName: s.teamName, season: s.season, gameEmails: s.gameEmails, notifyEmail: s.notifyEmail }
+      : { teamName: s.teamName, season: s.season },
     players: listPlayers_(),
     // PINs and permissions are only ever sent to the coach.
     parents: readTable_('Parents').map(parent_).map(p => (isCoach ? p : { id: p.id, name: p.name, active: p.active })),
@@ -520,11 +605,15 @@ function deleteParent_(who, d) {
 }
 
 function saveSettings_(who, d) {
+  const notifyEmail = d.notifyEmail === undefined ? '' : clean_(d.notifyEmail, 120);
+  if (notifyEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(notifyEmail)) throw new Error("That email address doesn't look right.");
   withLock_(() => {
     const teamName = clean_(d.teamName, 60);
     if (teamName) setSetting_('Team Name', teamName);
     const season = clean_(d.season, 20);
     if (season) setSetting_('Season', season);
+    if (d.gameEmails !== undefined) setSetting_('Game Emails', d.gameEmails ? 'on' : 'off');
+    if (d.notifyEmail !== undefined) setSetting_('Notify Email', notifyEmail);
   });
   return all_(who);
 }
@@ -564,6 +653,8 @@ function getSettings_() {
     teamName: map['Team Name'] || TEAM_DEFAULT,
     season: map['Season'] || '',
     coachPin: map['Coach PIN'] || '',
+    gameEmails: String(map['Game Emails'] || 'on').trim().toLowerCase() !== 'off',
+    notifyEmail: map['Notify Email'] || '',
   };
 }
 

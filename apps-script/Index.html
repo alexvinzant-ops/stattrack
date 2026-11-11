@@ -434,6 +434,7 @@ const S = {
   loginErr: '',
   data: null,        // coach: everything; scorer: their games
   tab: 'season',     // coach tab
+  resultsFilter: 'all',
   seasonMode: 'avg',
   sort: { key: 'pts', dir: -1 },
   playerId: null,    // coach player detail
@@ -1032,7 +1033,7 @@ function quarterCard() {
 // Coach
 // ---------------------------------------------------------------------------
 function coachTabList() {
-  const tabs = [['season', 'Season'], ['games', 'Games']];
+  const tabs = [['season', 'Season'], ['results', 'Results'], ['games', 'Games']];
   if (can('manage')) tabs.push(['roster', 'Roster']);
   if (S.me.role === 'coach') tabs.push(['parents', 'Access']);
   return tabs;
@@ -1045,6 +1046,7 @@ function viewCoach() {
   const right = '<button class="link" data-act="refresh">Refresh</button><button class="link" data-act="logout">Sign out</button>';
   let body;
   if (S.tab === 'season') body = viewSeason();
+  else if (S.tab === 'results') body = viewResults();
   else if (S.tab === 'games') body = viewGames();
   else if (S.tab === 'roster' && can('manage')) body = viewRoster();
   else if (S.tab === 'parents' && S.me.role === 'coach') body = viewParents();
@@ -1211,7 +1213,6 @@ function viewGames() {
   const d = S.data;
   const games = d.games.slice().sort((a, b) => b.date.localeCompare(a.date));
   const upcoming = games.filter(g => g.status !== 'final').reverse();
-  const done = games.filter(g => g.status === 'final');
   const card = g => {
     const box = d.boxes[g.id] || {};
     const us = teamPts(box), them = oppPts(box);
@@ -1229,7 +1230,37 @@ function viewGames() {
   };
   return (can('manage') ? '<div class="row" style="margin-top:14px"><span class="spacer"></span><button class="btn" data-act="bulkGames">Add many</button><button class="btn primary" data-act="editGame">+ New game</button></div>' : '') +
     '<div class="section-title">Upcoming &amp; in progress</div>' + (upcoming.length ? upcoming.map(card).join('') : '<div class="card empty">No upcoming games.</div>') +
-    (done.length ? '<div class="section-title">Final</div>' + done.map(card).join('') : '');
+    '<p class="muted small" style="margin-top:12px">Finished games are on the Results tab.</p>';
+}
+
+function viewResults() {
+  const d = S.data;
+  const showScore = canSeeGroup('scoring');
+  const rows = d.games.filter(g => g.status === 'final').sort((a, b) => b.date.localeCompare(a.date)).map(g => {
+    const box = d.boxes[g.id] || {};
+    const us = teamPts(box), them = oppPts(box);
+    return { g: g, us: us, them: them, r: us > them ? 'W' : us < them ? 'L' : 'T' };
+  });
+  if (!rows.length) return '<div class="card empty" style="margin-top:14px">No finished games yet.</div>';
+  const f = S.resultsFilter || 'all';
+  const wins = rows.filter(x => x.r === 'W').length, losses = rows.filter(x => x.r === 'L').length, ties = rows.length - wins - losses;
+  const shown = rows.filter(x => !showScore || f === 'all' || (f === 'wins' ? x.r === 'W' : x.r === 'L'));
+  const summary = showScore ? 'Record ' + wins + '–' + losses + (ties ? '–' + ties : '') : rows.length + ' finished game' + (rows.length === 1 ? '' : 's');
+  const seg = showScore ? '<div class="seg">' + [['all', 'All'], ['wins', 'Wins'], ['losses', 'Losses']].map(([k, l]) =>
+    '<button class="' + (f === k ? 'on' : '') + '" data-act="resultsFilter" data-f="' + k + '">' + l + '</button>').join('') + '</div>' : '';
+  let html = '<div class="row wrap-row" style="margin-top:14px"><div style="font-weight:800;font-size:18px" class="grow">' + summary + '</div>' + seg + '</div>';
+  if (!shown.length) return html + '<div class="card empty">No ' + (f === 'wins' ? 'wins' : 'losses') + ' yet.</div>';
+  let month = '';
+  shown.forEach(x => {
+    const m = /^(\d{4})-(\d{2})/.exec(x.g.date || '');
+    const label = m ? new Date(+m[1], +m[2] - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'Undated';
+    if (label !== month) { month = label; html += '<div class="section-title">' + esc(label) + '</div>'; }
+    const chip = showScore ? '<span class="chip ' + (x.r === 'W' ? 'win' : x.r === 'L' ? 'loss' : '') + '">' + x.r + '</span>' : '<span class="chip final">final</span>';
+    html += '<div class="card click" data-act="openBox" data-id="' + esc(x.g.id) + '" style="cursor:pointer"><div class="row"><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:16px">' + esc(gameTitle(x.g)) + '</div>' +
+      '<div class="muted small">' + esc(fmtDate(x.g.date)) + '</div></div>' +
+      '<div style="text-align:right">' + chip + (showScore ? '<div style="font-weight:800;font-size:18px;margin-top:2px">' + x.us + '–' + x.them + '</div>' : '') + '</div></div></div>';
+  });
+  return html;
 }
 
 function viewRoster() {
@@ -1244,6 +1275,8 @@ function viewRoster() {
     (S.me.role !== 'coach' ? '' : '<div class="section-title">Team settings</div><div class="card"><form data-form="settings">' +
     '<label class="field">Team name<input name="teamName" value="' + esc(d.settings.teamName) + '" maxlength="60"></label>' +
     '<label class="field">Season<input name="season" value="' + esc(d.settings.season) + '" maxlength="20"></label>' +
+    '<label class="row" style="gap:8px;margin:6px 0"><input type="checkbox" name="gameEmails"' + (d.settings.gameEmails !== false ? ' checked' : '') + '> Email me when a parent finishes a game</label>' +
+    '<label class="field">Send to (leave blank for your Google account)<input name="notifyEmail" type="email" value="' + esc(d.settings.notifyEmail || '') + '" maxlength="120"></label>' +
     '<div class="err"></div><button class="btn primary" type="submit">Save</button>' +
     '<p class="muted small">To change your coach PIN, edit <b>Coach PIN</b> on the Settings tab of the spreadsheet.</p></form></div>');
 }
@@ -1812,6 +1845,7 @@ const ACTS = {
     try { await loadHome(); render(); toast('Updated'); } catch (err) { err.auth ? logout(err.message) : toast(err.message); }
   },
   async refreshScorer() { await ACTS.refresh(); },
+  resultsFilter(el) { S.resultsFilter = el.dataset.f; render(); },
   tab(el) { S.tab = el.dataset.tab; S.view = 'coach'; render(); window.scrollTo(0, 0); },
   seasonMode(el) { S.seasonMode = el.dataset.m; render(); },
   sort(el) {
@@ -2074,7 +2108,7 @@ const FORMS = {
       });
   },
   settings(f) {
-    return coachSave('saveSettings', { teamName: f.elements.teamName.value, season: f.elements.season.value }).then(ok => ok && toast('Saved'));
+    return coachSave('saveSettings', { teamName: f.elements.teamName.value, season: f.elements.season.value, gameEmails: f.elements.gameEmails.checked, notifyEmail: f.elements.notifyEmail.value.trim() }).then(ok => ok && toast('Saved'));
   },
   async oppRoster(f) {
     const t = S.t;
