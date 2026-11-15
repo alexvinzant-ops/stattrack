@@ -108,6 +108,7 @@ function createGas(opts = {}) {
   const dialogs = [];
   const fetches = [];
   const mails = [];
+  const triggers = [];
   const users = { active: opts.activeUser == null ? 'coach@example.com' : opts.activeUser, owner: 'coach@example.com' };
   const context = {
     console,
@@ -150,6 +151,18 @@ function createGas(opts = {}) {
     ScriptApp: {
       getService: () => ({ getUrl: () => (opts.appUrl === undefined ? 'http://localhost:8080' : opts.appUrl) }),
       getScriptId: () => 'script123',
+      getProjectTriggers: () => triggers.slice(),
+      deleteTrigger: t => { const i = triggers.indexOf(t); if (i >= 0) triggers.splice(i, 1); },
+      newTrigger: fn => {
+        const t = { fn, hour: null, getHandlerFunction: () => fn };
+        const b = {
+          timeBased: () => b,
+          everyDays: () => b,
+          atHour: h => { t.hour = h; return b; },
+          create: () => { triggers.push(t); return t; },
+        };
+        return b;
+      },
       getOAuthToken: () => 'token',
     },
     HtmlService: {
@@ -172,6 +185,7 @@ function createGas(opts = {}) {
     dialogs,
     fetches,
     mails,
+    triggers,
     users,
     // Simulate Apps Script's JSON-ish serialization in both directions.
     api: req => JSON.parse(JSON.stringify(context.api(JSON.parse(JSON.stringify(req))))),
