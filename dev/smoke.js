@@ -173,6 +173,26 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await tap(3, 'FM');
     await parent.waitForSelector('.sync:text("All saved")');
 
+    // The game's date is on the tracking screen, and a game dated today shows no warning.
+    assert.match(await parent.textContent('[data-gamedate]'), /\w{3}, \w{3} \d+ · (Home|Away|Neutral)/, 'date line on tracker');
+    assert.equal(await parent.locator('.date-warn').count(), 0, 'no warning for today');
+
+    // Timeouts and end of quarter are logged as plays and don't touch the score.
+    const scoreBefore = await parent.$$eval('.score .pts', els => els.map(e => e.textContent));
+    await parent.click('[data-act=timeout][data-side=us]');
+    await parent.click('[data-act=timeout][data-side=opp]');
+    await parent.click('[data-act=timeout][data-side=us]');
+    assert.match(await parent.textContent('[data-timeouts]'), /Timeouts: .* 2 · Valley 1/, 'timeout counts');
+    const recent = await parent.textContent('.card.plays');
+    assert.match(recent, /Valley Christian timeout/);
+    await parent.evaluate(() => window.scrollTo(0, 0));
+    await shot(parent, '04c-timeouts');
+    await parent.click('[data-act=endPeriod]');
+    await parent.waitForSelector('.period-seg button.on:text-is("Q2")');
+    assert.match(await parent.textContent('.card.plays'), /End of Q1/);
+    assert.deepEqual(await parent.$$eval('.score .pts', els => els.map(e => e.textContent)), scoreBefore, 'markers do not change the score');
+    await parent.waitForSelector('.sync:text("All saved")');
+
     // Second quarter
     await parent.click('[data-act=period][data-n="2"]');
     await parent.waitForSelector('.period-seg button.on:text-is("Q2")');

@@ -23,17 +23,19 @@ const TABLES = {
   Players: ['ID', 'Number', 'Name', 'Active'],
   Parents: ['ID', 'Name', 'PIN', 'Active', 'Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players', 'Email', 'Phone', 'Invited', 'Track Stats', 'See Stats'],
   // Scorer ID: one or more parent IDs, comma-separated (several parents can split a game's stats).
-  Games: ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes', 'Opp Roster'],
+  Games: ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes', 'Opp Roster', 'Final Score'],
   // Book is blank for official stats, or a parent's ID for that parent's own record of their players.
   // Period: 1-4 = quarters, 5 = OT, 6 = 2OT... (blank on plays recorded before quarters were tracked)
   Events: ['ID', 'Game ID', 'Player ID', 'Stat', 'Delta', 'Time', 'Entered By', 'Book', 'Period'],
 };
 // Columns stored as plain text so Sheets doesn't turn PINs, dates, or jersey "00" into numbers/dates.
-const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3, 9, 11, 12, 13, 14, 15], Games: [2, 5, 8] };
+const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3, 9, 11, 12, 13, 14, 15], Games: [2, 5, 8, 9] };
 
 // Base counters. Everything else (points, FG, %) is derived.
 // REB = rebounds entered before offensive/defensive were tracked separately.
-const STATS = ['GP', 'FG2M', 'FG2A', 'FG3M', 'FG3A', 'FTM', 'FTA', 'REB', 'OREB', 'DREB', 'AST', 'STL', 'BLK', 'TO', 'PF', 'OPP'];
+const STATS = ['GP', 'FG2M', 'FG2A', 'FG3M', 'FG3A', 'FTM', 'FTA', 'REB', 'OREB', 'DREB', 'AST', 'STL', 'BLK', 'TO', 'PF', 'OPP', 'TMO_US', 'TMO_OPP', 'EOQ'];
+// Timeouts and end-of-quarter marks: team-level events kept for film review. They never affect scores or fouls.
+const MARKERS = ['TMO_US', 'TMO_OPP', 'EOQ'];
 const STATUSES = ['scheduled', 'live', 'final'];
 const LOCATIONS = ['home', 'away', 'neutral'];
 const REPORT_SHEETS = ['Season Stats', 'Game Log'];
@@ -275,9 +277,10 @@ function record_(who, data) {
       if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 10) throw new Error('Bad stat change.');
       let playerId = str_(e.playerId);
       if (!canEnterStat_(who, stat, str_(e.playerId))) throw new Error("You're not set up to enter that stat. Ask the coach.");
+      if (MARKERS.indexOf(stat) >= 0 && personal) throw new Error('Timeouts and end of quarter are only for the official stats.');
       if (allowed) {
         if (!allowed[playerId] || !playerIds[playerId] || stat === 'OPP') throw new Error('You can only keep stats for your assigned players.');
-      } else if (stat === 'OPP') playerId = '';
+      } else if (stat === 'OPP' || MARKERS.indexOf(stat) >= 0) playerId = '';
       else if (OPP_ID.test(playerId)) { if (stat === 'GP') throw new Error('Bad stat change.'); }
       else if (!playerIds[playerId]) throw new Error('Unknown player.');
       const time = isNaN(Date.parse(e.time)) ? new Date().toISOString() : new Date(e.time).toISOString();
@@ -287,6 +290,8 @@ function record_(who, data) {
     });
     appendRows_('Events', rows);
     if (!personal && rows.length && g.status === 'scheduled') updateGameField_(g.id, 'Status', 'live');
+    // Keep the saved final score in step when the coach fixes a game that is already final.
+    if (!personal && rows.length && g.status === 'final') updateGameField_(g.id, 'Final Score', finalScoreText_(g));
     return { saved: rows.length };
   });
 }
@@ -298,10 +303,19 @@ function setStatus_(who, data) {
   return withLock_(() => {
     const g = findGame_(data.gameId);
     checkGameAccess_(who, g);
-    updateGameField_(g.id, 'Status', status);
+    const row = findRow_('Games', g.id);
+    row.Status = status;
+    row['Final Score'] = status === 'final' ? finalScoreText_(g) : '';
+    writeRow_('Games', row._row, row);
     if (status === 'final' && g.status !== 'final' && who.role !== 'coach') notifyGameFinal_(who, g);
     return { ok: true, status: status };
   });
+}
+
+/** "21-61" (ours first), computed from the recorded plays. */
+function finalScoreText_(g) {
+  const t = gameTotals_(g);
+  return t.us + '-' + t.them;
 }
 
 /** Emails the coach when someone else ends a game. Never throws: a mail problem must not block ending the game. */
@@ -470,7 +484,7 @@ function addGames_(who, d) {
     const opponent = clean_(g.opponent, 60);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !opponent) throw new Error('Each game needs a date and an opponent.');
     const location = LOCATIONS.indexOf(g.location) >= 0 ? g.location : 'home';
-    return [newId_('G'), date, opponent, location, '', 'scheduled', clean_(g.notes, 200), ''];
+    return [newId_('G'), date, opponent, location, '', 'scheduled', clean_(g.notes, 200), '', ''];
   });
   withLock_(() => appendRows_('Games', rows));
   return all_(who);
@@ -511,9 +525,10 @@ function saveGame_(who, d) {
       writeRow_('Games', row._row, {
         ID: row.ID, Date: date, Opponent: opponent, Location: location,
         'Scorer ID': scorerId, Status: status, Notes: notes, 'Opp Roster': oppRoster,
+        'Final Score': row['Final Score'], // kept as recorded; only ending/reopening a game changes it
       });
     } else {
-      appendRows_('Games', [[newId_('G'), date, opponent, location, scorerId, status, notes, oppRoster]]);
+      appendRows_('Games', [[newId_('G'), date, opponent, location, scorerId, status, notes, oppRoster, '']]);
     }
   });
   return all_(who);
@@ -698,6 +713,7 @@ function statGroup_(stat) {
 /** Is this person allowed to enter this play? (Coach and assistant coaches can enter anything.) */
 function canEnterStat_(who, stat, playerId) {
   if (who.role === 'coach' || who.perms.manage) return true;
+  if (MARKERS.indexOf(stat) >= 0) return true; // anyone who can track the game (personal mode is refused in record_)
   const groups = who.perms.trackGroups || [];
   if (stat === 'OPP' || OPP_ID.test(playerId)) {
     if (groups.indexOf('opp') < 0) return false;
@@ -774,6 +790,7 @@ function listGames_() {
       status: STATUSES.indexOf(status) >= 0 ? status : 'scheduled',
       notes: str_(r.Notes),
       oppRoster: parseOppRoster_(r['Opp Roster']),
+      finalScore: str_(r['Final Score']),
     };
   });
 }
