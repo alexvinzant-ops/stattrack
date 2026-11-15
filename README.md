@@ -111,6 +111,8 @@ Want a shorter link? Make a free one at [tinyurl.com](https://tinyurl.com) with 
 
 **Game-end emails:** when a parent or other non-coach taps submit and a game becomes final, you get one email with the final score, scoring by quarter, and each player's line (PTS, REB, AST, STL, FG, 3P, FT, PF). Under **Roster → Team settings** you can turn this off (**Email me when a parent finishes a game**) or send it to a different address (**Send to**; blank means your Google account). The coach ending a game never sends an email. These are stored as **Game Emails** and **Notify Email** on the Settings tab.
 
+**Game-day emails:** under **Roster → Team settings**, tick **Email the assigned parents on game day** and pick an hour (5-11 AM, default 7). Each morning, every parent assigned to that day's game who has an email address (set on the Access tab) gets one reminder with the app link, their PIN, and four short steps; nobody is emailed twice for the same game (tracked in the **Reminded** column of the Games tab). **Send today's reminders now** sends today's reminders immediately. Turning this on schedules a daily trigger, so re-deploy with the updated `appsscript.json` and approve the new permission. Text messages aren't possible: Google can't send them without a paid third-party service.
+
 ### Game day (Parent, or Coach)
 1. Open the link and enter your PIN. Your assigned game appears. Tap **Start tracking**.
 2. Uncheck anyone who isn't playing today.

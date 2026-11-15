@@ -23,13 +23,14 @@ const TABLES = {
   Players: ['ID', 'Number', 'Name', 'Active'],
   Parents: ['ID', 'Name', 'PIN', 'Active', 'Track Any', 'Fix Stats', 'View Stats', 'Manage', 'Players', 'See Own Players', 'Email', 'Phone', 'Invited', 'Track Stats', 'See Stats'],
   // Scorer ID: one or more parent IDs, comma-separated (several parents can split a game's stats).
-  Games: ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes', 'Opp Roster', 'Final Score'],
+  // Reminded: parent IDs already sent the game-day email for that game (comma-separated).
+  Games: ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes', 'Opp Roster', 'Final Score', 'Reminded'],
   // Book is blank for official stats, or a parent's ID for that parent's own record of their players.
   // Period: 1-4 = quarters, 5 = OT, 6 = 2OT... (blank on plays recorded before quarters were tracked)
   Events: ['ID', 'Game ID', 'Player ID', 'Stat', 'Delta', 'Time', 'Entered By', 'Book', 'Period'],
 };
 // Columns stored as plain text so Sheets doesn't turn PINs, dates, or jersey "00" into numbers/dates.
-const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3, 9, 11, 12, 13, 14, 15], Games: [2, 5, 8, 9] };
+const TEXT_COLUMNS = { Settings: [2], Players: [2], Parents: [3, 9, 11, 12, 13, 14, 15], Games: [2, 5, 8, 9, 10] };
 
 // Base counters. Everything else (points, FG, %) is derived.
 // REB = rebounds entered before offensive/defensive were tracked separately.
@@ -117,6 +118,7 @@ const ACTIONS = {
   emailInvite: { need: 'coach', run: emailInvite_ },
   saveSettings: { need: 'coach', run: saveSettings_ },
   writeReport: { need: 'coach', run: writeReport_ },
+  sendGameDayNow: { need: 'coach', run: () => sendGameDayReminders_({ force: true }) },
 };
 
 // ---------------------------------------------------------------------------
@@ -436,7 +438,7 @@ function all_(who) {
   return {
     me: who ? me_(who) : { role: 'coach', name: 'Coach', teamName: s.teamName, perms: ALL_PERMS },
     settings: isCoach
-      ? { teamName: s.teamName, season: s.season, gameEmails: s.gameEmails, notifyEmail: s.notifyEmail }
+      ? { teamName: s.teamName, season: s.season, gameEmails: s.gameEmails, notifyEmail: s.notifyEmail, gameDayEmails: s.gameDayEmails, gameDayHour: s.gameDayHour }
       : { teamName: s.teamName, season: s.season },
     players: listPlayers_(),
     // PINs and permissions are only ever sent to the coach.
@@ -484,7 +486,7 @@ function addGames_(who, d) {
     const opponent = clean_(g.opponent, 60);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !opponent) throw new Error('Each game needs a date and an opponent.');
     const location = LOCATIONS.indexOf(g.location) >= 0 ? g.location : 'home';
-    return [newId_('G'), date, opponent, location, '', 'scheduled', clean_(g.notes, 200), '', ''];
+    return [newId_('G'), date, opponent, location, '', 'scheduled', clean_(g.notes, 200), '', '', ''];
   });
   withLock_(() => appendRows_('Games', rows));
   return all_(who);
@@ -526,9 +528,10 @@ function saveGame_(who, d) {
         ID: row.ID, Date: date, Opponent: opponent, Location: location,
         'Scorer ID': scorerId, Status: status, Notes: notes, 'Opp Roster': oppRoster,
         'Final Score': row['Final Score'], // kept as recorded; only ending/reopening a game changes it
+        Reminded: row.Reminded, // who already got the game-day email
       });
     } else {
-      appendRows_('Games', [[newId_('G'), date, opponent, location, scorerId, status, notes, oppRoster, '']]);
+      appendRows_('Games', [[newId_('G'), date, opponent, location, scorerId, status, notes, oppRoster, '', '']]);
     }
   });
   return all_(who);
@@ -622,6 +625,9 @@ function deleteParent_(who, d) {
 function saveSettings_(who, d) {
   const notifyEmail = d.notifyEmail === undefined ? '' : clean_(d.notifyEmail, 120);
   if (notifyEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(notifyEmail)) throw new Error("That email address doesn't look right.");
+  const hourGiven = d.gameDayHour !== undefined && d.gameDayHour !== null && d.gameDayHour !== '';
+  const hour = Number(d.gameDayHour);
+  if (hourGiven && !(Number.isInteger(hour) && hour >= 5 && hour <= 11)) throw new Error('Pick an hour between 5 AM and 11 AM.');
   withLock_(() => {
     const teamName = clean_(d.teamName, 60);
     if (teamName) setSetting_('Team Name', teamName);
@@ -629,6 +635,15 @@ function saveSettings_(who, d) {
     if (season) setSetting_('Season', season);
     if (d.gameEmails !== undefined) setSetting_('Game Emails', d.gameEmails ? 'on' : 'off');
     if (d.notifyEmail !== undefined) setSetting_('Notify Email', notifyEmail);
+    if (d.gameDayEmails !== undefined || hourGiven) {
+      const cur = getSettings_();
+      const on = d.gameDayEmails !== undefined ? !!d.gameDayEmails : cur.gameDayEmails;
+      try {
+        setGameDayEmails_(on, hourGiven ? hour : cur.gameDayHour);
+      } catch (e) {
+        throw new Error("Couldn't schedule the daily email: " + (e && e.message ? e.message : e));
+      }
+    }
   });
   return all_(who);
 }
@@ -670,7 +685,14 @@ function getSettings_() {
     coachPin: map['Coach PIN'] || '',
     gameEmails: String(map['Game Emails'] || 'on').trim().toLowerCase() !== 'off',
     notifyEmail: map['Notify Email'] || '',
+    gameDayEmails: String(map['Game Day Emails'] || 'off').trim().toLowerCase() === 'on',
+    gameDayHour: gameDayHour_(map['Game Day Email Hour']),
   };
+}
+
+function gameDayHour_(v) {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 5 && n <= 11 ? n : 7;
 }
 
 function setSetting_(key, value) {
@@ -1008,6 +1030,117 @@ function withLock_(fn) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Game-day reminder emails
+// ---------------------------------------------------------------------------
+
+const GROUP_NAMES = {
+  scoring: 'Points & shooting', reb: 'Rebounds', ast: 'Assists', stl: 'Steals',
+  blk: 'Blocks', to: 'Turnovers', pf: 'Fouls', opp: "Opponent's stats",
+};
+const MONTHS_ = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DAYS_ = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * Entry point for the daily time-driven trigger. It must be public (triggers call it by name), so
+ * web-app visitors can call it too: it takes no options, honours the on/off setting, and never
+ * emails the same parent twice for a game.
+ */
+function sendGameDayReminders() {
+  return sendGameDayReminders_({});
+}
+
+/** opts.force ignores the on/off setting (the coach's "send now" button). Idempotent either way. */
+function sendGameDayReminders_(opts) {
+  ensureSetup_();
+  const force = !!(opts && opts.force === true);
+  return withLock_(() => {
+    const s = getSettings_();
+    if (!force && !s.gameDayEmails) return { sent: 0, games: 0 };
+    const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    const parents = {};
+    readTable_('Parents').forEach(r => { parents[str_(r.ID)] = r; });
+    const cache = CacheService.getScriptCache();
+    let sent = 0, games = 0;
+    readTable_('Games').forEach(row => {
+      const g = listGames_().find(x => x.id === str_(row.ID));
+      if (!g || g.date !== today || g.status === 'final') return;
+      const assigned = g.scorerIds.map(id => parents[id]).filter(p => p && bool_(p.Active, true));
+      if (!assigned.length) return;
+      const cacheKey = 'reminded:' + g.id;
+      let done = idList_(row.Reminded);
+      try { done = done.concat(idList_(cache.get(cacheKey))); } catch (e) { /* cache is a bonus */ }
+      const allParents = assigned.map(parent_);
+      let touched = false;
+      allParents.forEach(p => {
+        if (done.indexOf(p.id) >= 0 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.email)) return;
+        try {
+          const mail = gameDayEmailText_(g, p, allParents);
+          MailApp.sendEmail({ to: p.email, subject: mail.subject, body: mail.body, name: s.teamName });
+        } catch (e) {
+          Logger.log('Game day email failed for ' + p.name + ': ' + e);
+          return;
+        }
+        sent++;
+        touched = true;
+        done.push(p.id);
+        try { cache.put(cacheKey, done.filter((x, i) => done.indexOf(x) === i).join(','), 21600); } catch (e) { /* ignore */ }
+      });
+      if (touched) {
+        games++;
+        const unique = done.filter((x, i) => done.indexOf(x) === i).join(',');
+        try { updateGameField_(g.id, 'Reminded', unique); } catch (e) { Logger.log('Could not record reminders: ' + e); }
+      }
+    });
+    return { sent: sent, games: games };
+  });
+}
+
+/** {subject, body} for one parent's game-day reminder. */
+function gameDayEmailText_(game, parent, allParents) {
+  const s = getSettings_();
+  const away = game.location === 'away';
+  const vs = (away ? '@ ' : 'vs ') + game.opponent;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(game.date);
+  let when = game.date;
+  if (m) {
+    const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    when = DAYS_[d.getUTCDay()] + ', ' + MONTHS_[d.getUTCMonth()] + ' ' + d.getUTCDate();
+  }
+  const first = str_(parent.name).split(/\s+/)[0] || 'there';
+  const lines = ['Hi ' + first + '!', '', "Today (" + when + ") you're keeping stats for " + s.teamName + ' ' + vs + '.'];
+  const groups = (parent.perms && parent.perms.trackGroups) || TRACK_GROUPS;
+  if (!(parent.perms && parent.perms.manage) && groups.length && groups.length < TRACK_GROUPS.length) {
+    lines.push("You'll be entering: " + groups.map(g => GROUP_NAMES[g] || g).join(', '));
+  }
+  const others = (allParents || []).filter(p => p.id !== parent.id).map(p => p.name).filter(Boolean);
+  if (others.length) lines.push('Also keeping stats: ' + others.join(', '));
+  let url = '';
+  try { url = ScriptApp.getService().getUrl() || ''; } catch (e) { /* no link available */ }
+  lines.push('');
+  if (url) lines.push('Link: ' + url);
+  lines.push('Your PIN: ' + parent.pin);
+  lines.push('',
+    '1. Open the link and enter your PIN.',
+    "2. Tap Start tracking on Today's game. Check the date under the score.",
+    '3. Tap a player, then the stat. Use Timeout/End Q buttons.',
+    '4. When it\'s over, tap Game over: submit final stats.',
+    '',
+    "Reply to this email if you can't make it.");
+  return { subject: "Game day: you're keeping stats " + vs, body: lines.join('\n') };
+}
+
+/** Turns the daily trigger on or off and remembers the choice. Callers hold the lock. */
+function setGameDayEmails_(on, hour) {
+  const h = gameDayHour_(hour);
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'sendGameDayReminders') ScriptApp.deleteTrigger(t);
+  });
+  if (on) ScriptApp.newTrigger('sendGameDayReminders').timeBased().everyDays(1).atHour(h).create();
+  setSetting_('Game Day Emails', on ? 'on' : 'off');
+  setSetting_('Game Day Email Hour', h);
 }
 
 // ---------------------------------------------------------------------------

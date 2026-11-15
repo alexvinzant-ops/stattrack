@@ -706,3 +706,123 @@ test('the Games header migration adds Final Score to an old sheet', () => {
   assert.equal(games[0].finalScore, '');
   assert.equal(games[0].status, 'final');
 });
+
+// ---- Game-day reminder emails ----
+
+function todayStr(gas) { return gas.context.Utilities.formatDate(new Date(), 'UTC', 'yyyy-MM-dd'); }
+
+function gameDaySetup(on = true) {
+  const t = setup();
+  const s = seed(t);
+  t.coach('saveParent', { id: s.pat.id, name: 'Pat Parent', email: 'pat@example.com' });
+  const all = t.coach('saveGame', { date: todayStr(t.gas), opponent: 'Rivals', location: 'away', scorerIds: [s.pat.id, s.sam.id] });
+  const today = all.games.find(g => g.opponent === 'Rivals');
+  if (on) t.coach('saveSettings', { gameDayEmails: true, gameDayHour: 7 });
+  return { t, ...s, today };
+}
+
+test('game-day reminder emails only the assigned parent with an email, once', () => {
+  const { t, pat } = gameDaySetup();
+  const r = t.gas.context.sendGameDayReminders();
+  assert.deepEqual({ ...r }, { sent: 1, games: 1 });
+  assert.equal(t.gas.mails.length, 1);
+  const m = t.gas.mails[0];
+  assert.equal(m.to, 'pat@example.com');
+  assert.equal(m.subject, "Game day: you're keeping stats @ Rivals");
+  assert.ok(m.body.includes('Hi Pat!'));
+  assert.ok(m.body.includes('Your PIN: ' + pat.pin));
+  assert.ok(m.body.includes('http://localhost:8080'));
+  assert.ok(m.body.includes('Also keeping stats: Sam Other'));
+  assert.ok(m.body.includes('Game over: submit final stats'));
+  // Idempotent, including after the cache is gone (durable Reminded column).
+  assert.equal(t.gas.context.sendGameDayReminders().sent, 0);
+  t.gas.cache.clear();
+  assert.equal(t.gas.context.sendGameDayReminders().sent, 0);
+  assert.equal(t.gas.mails.length, 1);
+  assert.equal(t.gas.sheets.Games.data.find(r => r[2] === 'Rivals')[9], pat.id);
+});
+
+test('game-day reminders skip final games and games on other days', () => {
+  const { t, today } = gameDaySetup();
+  t.coach('setStatus', { gameId: today.id, status: 'final' });
+  assert.equal(t.gas.context.sendGameDayReminders().sent, 0);
+  assert.equal(t.gas.mails.length, 0);
+});
+
+test('game-day reminders ignore other dates', () => {
+  const t = setup();
+  const { pat } = seed(t);
+  t.coach('saveParent', { id: pat.id, name: 'Pat Parent', email: 'pat@example.com' });
+  t.coach('saveSettings', { gameDayEmails: true });
+  assert.equal(t.gas.context.sendGameDayReminders().sent, 0);
+});
+
+test('game-day setting off sends nothing; coach can send now, parents cannot', () => {
+  const { t, pat } = gameDaySetup(false);
+  assert.equal(t.gas.context.sendGameDayReminders().sent, 0);
+  assert.equal(t.gas.mails.length, 0);
+  assert.throws(() => t.call(pat.pin, 'sendGameDayNow'), /Only the coach/);
+  assert.equal(t.coach('sendGameDayNow').sent, 1);
+  assert.equal(t.coach('sendGameDayNow').sent, 0);
+  assert.equal(t.gas.mails.length, 1);
+});
+
+test('game-day trigger is created once, replaced on save, and removed when off', () => {
+  const t = setup();
+  let all = t.coach('saveSettings', { gameDayEmails: true, gameDayHour: 8 });
+  assert.equal(all.settings.gameDayEmails, true);
+  assert.equal(all.settings.gameDayHour, 8);
+  assert.equal(t.gas.triggers.length, 1);
+  assert.equal(t.gas.triggers[0].hour, 8);
+  assert.equal(t.gas.triggers[0].getHandlerFunction(), 'sendGameDayReminders');
+  t.coach('saveSettings', { gameDayEmails: true, gameDayHour: 8 });
+  assert.equal(t.gas.triggers.length, 1);
+  t.coach('saveSettings', { gameDayHour: 9 });
+  assert.equal(t.gas.triggers.length, 1);
+  assert.equal(t.gas.triggers[0].hour, 9);
+  all = t.coach('saveSettings', { gameDayEmails: false });
+  assert.equal(t.gas.triggers.length, 0);
+  assert.equal(all.settings.gameDayEmails, false);
+  assert.throws(() => t.coach('saveSettings', { gameDayHour: 4 }), /between 5 AM and 11 AM/);
+});
+
+test('game-day settings are only sent to the coach', () => {
+  const t = setup();
+  const { pat } = seed(t);
+  assert.ok('gameDayEmails' in t.coach('all').settings);
+  const a = t.gas.context.all_({ role: 'scorer', id: pat.id, perms: { viewStats: true } });
+  assert.equal(a.settings.gameDayEmails, undefined);
+});
+
+test('the Games header migration adds Reminded', () => {
+  const gas = createGas();
+  gas.context.setup();
+  gas.sheets.Games.data[0] = ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes', 'Opp Roster', 'Final Score'];
+  gas.sheets.Games.data.push(['G1', '2026-11-14', 'Valley', 'home', '', 'final', '', '', '3-2']);
+  const again = createGas();
+  for (const k of Object.keys(gas.sheets)) again.sheets[k] = gas.sheets[k];
+  again.context.setup();
+  assert.equal(gas.sheets.Games.data[0][9], 'Reminded');
+  const pin = gas.sheets.Settings.data.find(r => r[0] === 'Coach PIN')[1];
+  assert.equal(again.api({ pin, action: 'all' }).games[0].finalScore, '3-2');
+});
+
+test('editing a game keeps Reminded and Final Score', () => {
+  const { t, pat, today } = gameDaySetup();
+  t.gas.context.sendGameDayReminders();
+  t.coach('saveGame', { id: today.id, date: today.date, opponent: 'Rivals II', location: 'home', scorerIds: [pat.id] });
+  const row = t.gas.sheets.Games.data.find(r => r[2] === 'Rivals II');
+  assert.equal(row[9], pat.id);
+});
+
+test('a mail failure does not throw or break the run', () => {
+  const t = { gas: createGas({ mailFails: true }) };
+  t.gas.context.setup();
+  const pin = t.gas.sheets.Settings.data.find(r => r[0] === 'Coach PIN')[1];
+  const coach = (action, data) => t.gas.api({ pin, action, data });
+  coach('saveParent', { name: 'Pat', email: 'pat@example.com' });
+  const pat = coach('all').parents[0];
+  coach('saveGame', { date: todayStr(t.gas), opponent: 'Rivals', scorerIds: [pat.id] });
+  assert.equal(coach('sendGameDayNow').sent, 0);
+  assert.equal(coach('sendGameDayNow').sent, 0); // not marked reminded, so it would retry
+});

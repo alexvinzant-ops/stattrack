@@ -1325,6 +1325,10 @@ function viewRoster() {
     '<label class="field">Team name<input name="teamName" value="' + esc(d.settings.teamName) + '" maxlength="60"></label>' +
     '<label class="field">Season<input name="season" value="' + esc(d.settings.season) + '" maxlength="20"></label>' +
     '<label class="row" style="gap:8px;margin:6px 0"><input type="checkbox" name="gameEmails"' + (d.settings.gameEmails !== false ? ' checked' : '') + '> Email me when a parent finishes a game</label>' +
+    '<label class="row" style="gap:8px;margin:6px 0"><input type="checkbox" name="gameDayEmails"' + (d.settings.gameDayEmails ? ' checked' : '') + '> Email the assigned parents on game day</label>' +
+    '<label class="field">around<select name="gameDayHour">' + [5, 6, 7, 8, 9, 10, 11].map(h => '<option value="' + h + '"' + (h === (d.settings.gameDayHour || 7) ? ' selected' : '') + '>' + h + ' AM</option>').join('') + '</select></label>' +
+    '<p class="muted small" style="margin:2px 0 8px">Only parents with an email address on the Access tab get it. Texts aren\'t available: Google can\'t send text messages.</p>' +
+    '<button class="btn sm" type="button" data-act="sendGameDayNow" style="margin-bottom:10px">Send today\'s reminders now</button>' +
     '<label class="field">Send to (leave blank for your Google account)<input name="notifyEmail" type="email" value="' + esc(d.settings.notifyEmail || '') + '" maxlength="120"></label>' +
     '<div class="err"></div><button class="btn primary" type="submit">Save</button>' +
     '<p class="muted small">To change your coach PIN, edit <b>Coach PIN</b> on the Settings tab of the spreadsheet.</p></form></div>');
@@ -1412,7 +1416,7 @@ function gameForm(g) {
     '<label class="field">Location<select name="location">' + ['home', 'away', 'neutral'].map(l => '<option value="' + l + '" ' + (g.location === l ? 'selected' : '') + '>' + l[0].toUpperCase() + l.slice(1) + '</option>').join('') + '</select></label>' +
     '<div class="field" style="margin-top:12px"><b>Who keeps stats?</b><p class="muted small" style="margin:2px 0 0">Pick one parent for everything, or several to split the work (each enters the stats you chose for them on the Access tab). Leave all unchecked if you\'re keeping stats yourself.</p>' +
     '<div class="player-checks">' + parents.map(p => '<label class="check"><input type="checkbox" name="sc" value="' + esc(p.id) + '"' + (sc.indexOf(p.id) >= 0 ? ' checked' : '') + '><span>' + esc(p.name) +
-      '<span class="muted small">' + esc(groupListText((p.perms || {}).trackGroups, TRACK_GROUP_KEYS)) + '</span></span></label>').join('') + '</div></div>' +
+      '<span class="muted small">' + esc(groupListText((p.perms || {}).trackGroups, TRACK_GROUP_KEYS)) + '</span>' + (p.email ? '' : '<span class="muted small"> (no email)</span>') + '</span></label>').join('') + '</div></div>' +
     (parents.length ? '' : '<div class="note">Add parents on the Parents tab to assign them games.</div>') +
     '<label class="field">Opponent jersey numbers <span class="muted small">(optional)</span><textarea name="oppRoster" rows="3" placeholder="4 Smith, 12, 23 Jones">' + esc((g.oppRoster || []).map(p => (p.number + ' ' + p.name).trim()).join(', ')) + '</textarea></label>' +
     '<label class="field">Notes<input name="notes" maxlength="200" value="' + esc(g.notes) + '" placeholder="Optional"></label>' +
@@ -2134,6 +2138,14 @@ const ACTS = {
     if (!confirm('Remove this player? If they have stats, they are kept and the player is just marked inactive.')) return;
     coachSave('deletePlayer', { id: el.dataset.id });
   },
+  async sendGameDayNow() {
+    try {
+      const r = await call('sendGameDayNow', {});
+      toast(r.sent ? 'Sent ' + r.sent + ' reminder' + (r.sent === 1 ? '' : 's') : 'No one to remind today');
+    } catch (err) {
+      if (err.auth) logout(err.message); else toast(err.message);
+    }
+  },
   editGame(el) { gameForm(S.data.games.find(g => g.id === el.dataset.id)); },
   deleteGame(el) {
     if (!confirm('Delete this game and ALL of its stats? This cannot be undone.')) return;
@@ -2216,7 +2228,7 @@ const FORMS = {
       });
   },
   settings(f) {
-    return coachSave('saveSettings', { teamName: f.elements.teamName.value, season: f.elements.season.value, gameEmails: f.elements.gameEmails.checked, notifyEmail: f.elements.notifyEmail.value.trim() }).then(ok => ok && toast('Saved'));
+    return coachSave('saveSettings', { teamName: f.elements.teamName.value, season: f.elements.season.value, gameEmails: f.elements.gameEmails.checked, gameDayEmails: f.elements.gameDayEmails.checked, gameDayHour: Number(f.elements.gameDayHour.value), notifyEmail: f.elements.notifyEmail.value.trim() }).then(ok => ok && toast('Saved'));
   },
   async oppRoster(f) {
     const t = S.t;
