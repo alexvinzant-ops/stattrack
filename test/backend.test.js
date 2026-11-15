@@ -619,3 +619,90 @@ test('a mail failure does not stop a game from ending', () => {
   assert.equal(gas.mails.length, 0);
   assert.equal(t.coach('all').games.find(g => g.id === s.g1.id).status, 'final');
 });
+
+// ---------------------------------------------------------------------------
+// Final score, timeouts and end of quarter
+// ---------------------------------------------------------------------------
+const gameOf = (t, id) => t.coach('all').games.find(g => g.id === id);
+
+test('Final Score is saved when a game ends, cleared on reopen, and updated by coach fixes', () => {
+  const t = setup();
+  const { pat, g1, ava } = seed(t);
+  assert.equal(gameOf(t, g1.id).finalScore, '');
+  t.call(pat.pin, 'record', { gameId: g1.id, events: [ev(ava.id, 'FG3M'), ev(ava.id, 'FG3A'), ev('', 'OPP', 2)] });
+  assert.equal(gameOf(t, g1.id).finalScore, '', 'not saved while the game is live');
+  t.call(pat.pin, 'setStatus', { gameId: g1.id, status: 'final' });
+  assert.equal(gameOf(t, g1.id).finalScore, '3-2');
+  // Editing the game keeps the saved score.
+  t.coach('saveGame', { ...gameOf(t, g1.id), notes: 'edited' });
+  assert.equal(gameOf(t, g1.id).finalScore, '3-2');
+  // Coach fixes a final game: the saved score follows.
+  t.coach('record', { gameId: g1.id, events: [ev(ava.id, 'FTM'), ev(ava.id, 'FTA'), ev('', 'OPP', 3)] });
+  assert.equal(gameOf(t, g1.id).finalScore, '4-5');
+  assert.equal(gameOf(t, g1.id).status, 'final');
+  // Reopening clears it.
+  t.coach('setStatus', { gameId: g1.id, status: 'live' });
+  assert.equal(gameOf(t, g1.id).finalScore, '');
+  t.coach('setStatus', { gameId: g1.id, status: 'final' });
+  assert.equal(gameOf(t, g1.id).finalScore, '4-5');
+  t.coach('setStatus', { gameId: g1.id, status: 'scheduled' });
+  assert.equal(gameOf(t, g1.id).finalScore, '');
+  // New games start blank.
+  const all = t.coach('addGames', { list: [{ date: '2026-12-01', opponent: 'New' }] });
+  assert.equal(all.games.find(g => g.opponent === 'New').finalScore, '');
+});
+
+test('timeouts and end of quarter are team events that never change the score', () => {
+  const t = setup();
+  const { pat, sam, g1, ava } = seed(t);
+  t.call(pat.pin, 'record', { gameId: g1.id, events: [ev(ava.id, 'FG2M', 1, 1), ev(ava.id, 'FG2A', 1, 1), ev('', 'OPP', 3, 1)] });
+  const before = JSON.stringify(t.gas.context.gameTotals_(t.gas.context.findGame_(g1.id)));
+  const marks = [ev('', 'TMO_US', 1, 1), ev('', 'TMO_OPP', 1, 2), ev('', 'EOQ', 1, 1)];
+  // Even a parent who is given a player id gets it cleared.
+  marks.push(ev(ava.id, 'TMO_US', 1, 2));
+  assert.equal(t.call(pat.pin, 'record', { gameId: g1.id, events: marks }).saved, 4);
+  const r = t.call(pat.pin, 'game', { gameId: g1.id });
+  assert.equal(r.box._team.TMO_US, 2);
+  assert.equal(r.box._team.TMO_OPP, 1);
+  assert.equal(r.box._team.EOQ, 1);
+  assert.equal(r.box[ava.id].TMO_US, undefined);
+  assert.deepEqual(r.box[ava.id], { FG2M: 1, FG2A: 1 });
+  assert.equal(JSON.stringify(t.gas.context.gameTotals_(t.gas.context.findGame_(g1.id))), before);
+  assert.equal(r.periods[1].us, 2);
+  assert.equal(r.periods[1].opp, 3);
+  assert.equal(r.periods[1].usPF, 0);
+  // Stored with time and period like any play.
+  const rows = t.gas.sheets.Events.data.filter(x => x[3] === 'EOQ');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0][2], '');
+  assert.equal(rows[0][8], 1);
+  assert.ok(!isNaN(Date.parse(rows[0][5])));
+  // Personal mode refuses them, and a parent not on the game can't add them.
+  assert.throws(() => t.call(sam.pin, 'record', { gameId: g1.id, mode: 'personal', events: [ev('', 'TMO_US', 1, 1)] }), /assigned|official|players/i);
+  const own = t.coach('saveParent', { name: 'Player Parent', players: [ava.id] }).parents.find(p => p.name === 'Player Parent');
+  assert.throws(() => t.call(own.pin, 'record', { gameId: g1.id, mode: 'personal', events: [ev('', 'EOQ', 1, 1)] }), /official/);
+  assert.throws(() => t.call(own.pin, 'record', { gameId: g1.id, mode: 'personal', events: [ev(ava.id, 'TMO_US', 1, 1)] }), /official/);
+  assert.throws(() => t.call(sam.pin, 'record', { gameId: g1.id, events: [ev('', 'EOQ', 1, 1)] }), /isn't assigned/);
+  // A scorer limited to one stat group can still log them.
+  const limited = t.coach('saveParent', { name: 'Limited', trackGroups: ['reb'] }).parents.find(p => p.name === 'Limited');
+  t.coach('saveGame', { ...gameOf(t, g1.id), scorerIds: [pat.id, limited.id] });
+  assert.equal(t.call(limited.pin, 'record', { gameId: g1.id, events: [ev('', 'TMO_OPP', 1, 3)] }).saved, 1);
+  // The coach's Final Score ignores them too.
+  t.coach('setStatus', { gameId: g1.id, status: 'final' });
+  assert.equal(gameOf(t, g1.id).finalScore, '2-3');
+});
+
+test('the Games header migration adds Final Score to an old sheet', () => {
+  const gas = createGas();
+  gas.context.setup();
+  gas.sheets.Games.data[0] = ['ID', 'Date', 'Opponent', 'Location', 'Scorer ID', 'Status', 'Notes', 'Opp Roster'];
+  gas.sheets.Games.data.push(['G1', '2026-11-14', 'Valley', 'home', '', 'final', '', '']);
+  const again = createGas();
+  for (const k of Object.keys(gas.sheets)) again.sheets[k] = gas.sheets[k];
+  again.context.setup();
+  assert.equal(gas.sheets.Games.data[0][8], 'Final Score');
+  const pin = gas.sheets.Settings.data.find(r => r[0] === 'Coach PIN')[1];
+  const games = again.api({ pin, action: 'all' }).games;
+  assert.equal(games[0].finalScore, '');
+  assert.equal(games[0].status, 'final');
+});

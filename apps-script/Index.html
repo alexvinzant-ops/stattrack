@@ -196,6 +196,15 @@ table.compare tr.book-row td { border-bottom-width: 2px; }
 .period-seg { background: rgba(255,255,255,.16); }
 .period-seg button { color: var(--accent-ink); min-width: 46px; padding: 7px 10px; font-size: 15px; }
 .period-seg button.on { background: var(--gold); color: #1d2433; }
+.game-meta { background: var(--accent); color: var(--accent-ink); text-align: center; font-size: 14px; font-weight: 600; padding: 0 16px 8px; opacity: .95; }
+.date-warn { background: #ffb020; color: #3d2600; font-weight: 700; font-size: 14px; padding: 9px 16px; text-align: center; border-bottom: 2px solid #c27c00; }
+.mark-row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; margin-top: 2px; }
+.mark-row button { background: rgba(255,255,255,.16); color: var(--accent-ink); border: 1px solid rgba(255,255,255,.35); border-radius: 8px; padding: 6px 10px; font-size: 13px; font-weight: 700; min-height: 34px; cursor: pointer; font-family: inherit; }
+.mark-count { font-size: 13px; opacity: .9; width: 100%; text-align: center; }
+.today-tag { display: inline-block; background: var(--gold); color: #1d2433; font-size: 12px; font-weight: 800; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: .03em; margin-right: 6px; }
+.past-games { margin-top: 20px; opacity: .85; }
+.past-games summary { cursor: pointer; font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+.saved-score { font-size: 12px; color: var(--warn); font-weight: 600; }
 .box-filter { margin: 4px 0 10px; display: flex; flex-wrap: wrap; }
 .box-filter button { flex: 1; min-width: 44px; padding: 6px 8px; }
 .trend-wrap { overflow-x: auto; }
@@ -399,6 +408,20 @@ function todayISO() {
 }
 const LOC = { home: 'vs', away: '@', neutral: 'vs' };
 function gameTitle(g) { return (LOC[g.location] || 'vs') + ' ' + g.opponent; }
+const LOC_NAME = { home: 'Home', away: 'Away', neutral: 'Neutral' };
+function gameMeta(g) { return fmtDate(g.date) + ' · ' + (LOC_NAME[g.location] || 'Home'); }
+// Non-final games split by date: today first, then future, then past games nobody ended.
+function groupGames(games) {
+  const today = todayISO();
+  const open = games.filter(g => g.status !== 'final').sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    today: open.filter(g => g.date === today),
+    upcoming: open.filter(g => g.date > today),
+    past: open.filter(g => g.date < today).reverse(),
+  };
+}
+const PAST_NOTE = 'These games were never ended. If one wasn\'t played, ask the coach to remove it.';
+function savedScoreNote(g, us, them) { return g.finalScore && g.finalScore !== us + '-' + them ? '<div class="saved-score">saved: ' + esc(g.finalScore) + '</div>' : ''; }
 function playerLabel(p) { return ((p.number !== '' ? '#' + p.number + ' ' : '') + p.name).trim(); }
 function can(k) { return !!S.me && (S.me.role === 'coach' || !!(S.me.perms && S.me.perms[k])); }
 function hasDashboard() { return can('viewStats') || can('manage'); }
@@ -579,20 +602,28 @@ function viewScorerHome() {
   const mine = d.myPlayers || [];
   const pgames = d.playerGames || [];
   const names = mine.map(p => p.name.split(' ')[0]).join(' & ');
-  const gameCard = (g, btn) => '<div class="card"><div class="row"><div class="grow" style="flex:1"><div style="font-weight:700;font-size:17px">' + esc(gameTitle(g)) + '</div>' +
-    '<div class="muted small">' + esc(fmtDate(g.date)) + ' · ' + esc(g.location) + '</div></div>' + statusChip(g.status) + '</div>' + btn + '</div>';
+  const gameCard = (g, btn, tag) => '<div class="card"><div class="row"><div class="grow" style="flex:1"><div style="font-weight:700;font-size:17px">' + (tag ? '<span class="today-tag">' + esc(tag) + '</span>' : '') + esc(gameTitle(g)) + '</div>' +
+    '<div class="muted small">' + esc(gameMeta(g)) + '</div></div>' + statusChip(g.status) + '</div>' + btn + '</div>';
+  const grp = groupGames(games);
+  const trackBtn = (g, primary) => '<button class="btn ' + (primary ? 'primary ' : '') + 'big" style="margin-top:12px" data-act="openGame" data-id="' + esc(g.id) + '">' + (g.status === 'live' ? 'Continue tracking' : 'Start tracking') + '</button>';
   let html = '';
   if (games.length || !mine.length) {
-    html += '<div class="section-title">Team stats you\'re keeping</div>' +
-      (games.length ? games.map(g => gameCard(g, '<button class="btn primary big" style="margin-top:12px" data-act="openGame" data-id="' + esc(g.id) + '">' + (g.status === 'live' ? 'Continue tracking' : 'Start tracking') + '</button>')).join('')
-        : '<div class="card empty">No games are assigned to you right now.<br>Coach will assign you a game.</div>');
+    html += '<div class="section-title">Team stats you\'re keeping</div>';
+    if (!grp.today.length && !grp.upcoming.length && !grp.past.length) html += '<div class="card empty">No games are assigned to you right now.<br>Coach will assign you a game.</div>';
+    if (grp.today.length) html += '<div class="section-title" style="margin-top:10px">Today</div>' + grp.today.map(g => gameCard(g, trackBtn(g, true), grp.today.length === 1 ? 'Today\'s game' : '')).join('');
+    else if (grp.upcoming.length || grp.past.length) html += '<p class="small muted" style="margin:8px 2px 0">No game is scheduled for today.</p>';
+    if (grp.upcoming.length) html += '<div class="section-title">Coming up</div>' + grp.upcoming.map(g => gameCard(g, trackBtn(g, !grp.today.length && g === grp.upcoming[0]))).join('');
+    if (grp.past.length) html += '<details class="past-games"' + (!grp.today.length && !grp.upcoming.length ? ' open' : '') + '><summary>Past games not ended (' + grp.past.length + ')</summary>' +
+      '<p class="small muted" style="margin:6px 2px 0">' + esc(PAST_NOTE) + '</p>' + grp.past.map(g => gameCard(g, trackBtn(g, false))).join('') + '</details>';
   }
   if (mine.length) {
-    // Next few games only, so the list stays short.
-    const upcoming = pgames.filter(g => g.date >= todayISO() || g.status === 'live').slice(0, 4);
+    // Next few games only, so the list stays short. Today's game comes first.
+    const rank = g => g.date === todayISO() ? 0 : g.date > todayISO() ? 1 : 2;
+    const todayCount = pgames.filter(g => g.date === todayISO()).length;
+    const upcoming = pgames.filter(g => g.date >= todayISO() || g.status === 'live').sort((a, b) => rank(a) - rank(b) || a.date.localeCompare(b.date)).slice(0, 4);
     html += '<div class="section-title">Your player' + (mine.length > 1 ? 's' : '') + ': ' + esc(mine.map(playerLabel).join(', ')) + '</div>' +
       '<p class="small muted" style="margin:6px 2px 0">Keep your own record of ' + esc(names) + ' in any game. It goes to the coach and never changes the official stats.</p>' +
-      (upcoming.length ? upcoming.map(g => gameCard(g, '<button class="btn big" style="margin-top:12px" data-act="openPersonal" data-id="' + esc(g.id) + '">Track ' + esc(names) + '</button>')).join('')
+      (upcoming.length ? upcoming.map(g => gameCard(g, '<button class="btn ' + (rank(g) === 0 ? 'primary ' : '') + 'big" style="margin-top:12px" data-act="openPersonal" data-id="' + esc(g.id) + '">Track ' + esc(names) + '</button>', rank(g) === 0 && todayCount === 1 ? 'Today\'s game' : '')).join('')
         : '<div class="card empty">No upcoming games.</div>');
   }
   if (d.myStats) html += viewMyStats(mine, d.myStats);
@@ -712,7 +743,11 @@ function viewGame() {
     '<div class="team"><div class="nm">' + esc(g.opponent) + '</div><div class="pts">' + (canSeeGroup('scoring') ? oppPts(t.box) : '–') + '</div>' +
     '</div>' +
     '</div></div>';
-  const head = topBar(gameTitle(g), left, t.canTrack ? syncHtml() : '', tabs) + scoreboard + (t.canTrack && t.tab === 'track' ? periodBar() : '');
+  const dateWarn = t.canTrack && t.tab === 'track' && g.date !== todayISO()
+    ? '<div class="date-warn" role="alert">⚠ This game is dated ' + esc(fmtDate(g.date)) + ', not today. Make sure you picked the right game.</div>' : '';
+  const head = topBar(gameTitle(g), left, t.canTrack ? syncHtml() : '', tabs) + scoreboard +
+    '<div class="game-meta" data-gamedate>' + esc(gameMeta(g)) + '</div>' +
+    (t.canTrack && t.tab === 'track' ? periodBar() : '') + dateWarn;
   const body = t.tab === 'track' && t.canTrack ? viewTracker() : viewGameBox(coach);
   return head + '<div class="wrap">' + body + '</div>';
 }
@@ -727,7 +762,13 @@ function periodBar() {
   }
   const q = (t.periods || {})[t.period] || {};
   const fouls = t.mode ? '' : '<div class="team-fouls">Team fouls ' + periodLabel(t.period) + ': <b>' + esc(shortTeam()) + ' ' + n0(q.usPF) + '</b> · ' + esc(t.game.opponent) + ' ' + n0(q.oppPF) + '</div>';
-  return '<div class="period-bar"><div class="inner"><div class="seg period-seg">' + btns.join('') + '</div>' + fouls + '</div></div>';
+  const tm = (t.box[TEAM] || {});
+  const marks = t.mode ? '' : '<div class="mark-row">' +
+    '<button data-act="timeout" data-side="us">Timeout ' + esc(shortTeam()) + '</button>' +
+    '<button data-act="timeout" data-side="opp">Timeout ' + esc(shortOpp()) + '</button>' +
+    '<button data-act="endPeriod">End ' + periodLabel(t.period) + '</button>' +
+    '<div class="mark-count" data-timeouts>Timeouts: ' + esc(shortTeam()) + ' ' + n0(tm.TMO_US) + ' · ' + esc(shortOpp()) + ' ' + n0(tm.TMO_OPP) + '</div></div>';
+  return '<div class="period-bar"><div class="inner"><div class="seg period-seg">' + btns.join('') + '</div>' + fouls + marks + '</div></div>';
 }
 
 // NFHS: team fouls reset every quarter; the 5th team foul in a quarter puts the other team in the bonus.
@@ -768,9 +809,11 @@ function endGameButton() {
   return '<button class="btn danger big end-game" data-act="endGame">' + (can('manage') ? 'End game (mark final)' : 'Game over: submit final stats') + '</button>';
 }
 
+const MARKER_STATS = ['TMO_US', 'TMO_OPP', 'EOQ'];
 function playRow(p) {
+  const marker = p.events[0] && MARKER_STATS.indexOf(p.events[0].stat) >= 0;
   const who = p.playerId ? anyLabel(p.playerId) : (p.events[0] && p.events[0].stat === 'OPP' ? g_opp() : 'Team');
-  return '<div class="list-item ' + (p.undone ? 'undone' : '') + '"><div class="grow"><b>' + esc(who) + '</b> · ' + esc(p.label) +
+  return '<div class="list-item ' + (p.undone ? 'undone' : '') + '"><div class="grow">' + (marker ? '<b>' + esc(p.label) + '</b>' : '<b>' + esc(who) + '</b> · ' + esc(p.label)) +
     '<div class="muted small">' + (p.events[0] && p.events[0].period && !S.t.mode ? periodLabel(p.events[0].period) + ' · ' : '') + esc(new Date(p.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) + '</div></div>' +
     (p.undone ? '<span class="muted small">undone</span>' : '<button class="btn sm" data-act="undo" data-id="' + esc(p.id) + '">Undo</button>') + '</div>';
 }
@@ -855,6 +898,8 @@ function viewTracker() {
     '<div class="card plays"><h2>Recent plays</h2>' + playsHtml + '</div>' +
     endGameButton();
 }
+// "Providence Classical Academy" → "Providence" for tight spots like the timeout buttons.
+function shortOpp() { const o = S.t ? String(S.t.game.opponent) : 'Opponent'; return o.length <= 12 ? o : (o.split(/\s+/)[0] || o).slice(0, 14); }
 function shortTeam() { return S.teamName.length <= 12 ? S.teamName : (S.teamName.split(/\s+/)[0] || 'Us').slice(0, 14); }
 function g_opp() { return S.t ? S.t.game.opponent : 'Opponent'; }
 
@@ -1211,25 +1256,29 @@ function parentName(id) {
 
 function viewGames() {
   const d = S.data;
-  const games = d.games.slice().sort((a, b) => b.date.localeCompare(a.date));
-  const upcoming = games.filter(g => g.status !== 'final').reverse();
-  const card = g => {
+  const grp = groupGames(d.games);
+  const card = (g, primary) => {
     const box = d.boxes[g.id] || {};
     const us = teamPts(box), them = oppPts(box);
     const showScore = canSeeGroup('scoring');
     const result = g.status === 'final' && showScore ? (us > them ? '<span class="chip win">W</span>' : us < them ? '<span class="chip loss">L</span>' : '<span class="chip">T</span>') : statusChip(g.status);
     const scorer = (g.scorerIds || []).map(parentName).filter(Boolean).join(', ');
-    return '<div class="card"><div class="row"><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:17px">' + esc(gameTitle(g)) + '</div>' +
+    const tag = g.date === todayISO() && grp.today.length === 1 ? '<span class="today-tag">Today\'s game</span>' : '';
+    return '<div class="card"><div class="row"><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:17px">' + tag + esc(gameTitle(g)) + '</div>' +
       '<div class="muted small">' + esc(fmtDate(g.date)) + ' · Stats: ' + (scorer ? esc(scorer) : '<b>no parent assigned</b>') + '</div></div>' +
-      '<div style="text-align:right">' + result + (g.status !== 'scheduled' && showScore ? '<div style="font-weight:800;font-size:18px;margin-top:2px">' + us + '–' + them + '</div>' : '') + '</div></div>' +
+      '<div style="text-align:right">' + result + (g.status !== 'scheduled' && showScore ? '<div style="font-weight:800;font-size:18px;margin-top:2px">' + us + '–' + them + '</div>' + savedScoreNote(g, us, them) : '') + '</div></div>' +
       '<div class="row wrap-row" style="margin-top:10px">' +
-      (canTrackGame(g) ? '<button class="btn sm primary" data-act="openGame" data-id="' + esc(g.id) + '">Track</button>' : '') +
+      (canTrackGame(g) ? '<button class="btn sm' + (primary ? ' primary' : '') + '" data-act="openGame" data-id="' + esc(g.id) + '">' + (primary ? (g.status === 'live' ? 'Continue tracking' : 'Start tracking') : 'Track') + '</button>' : '') +
       (g.status !== 'final' && S.me.players && S.me.players.length ? '<button class="btn sm" data-act="openPersonal" data-id="' + esc(g.id) + '">Track my player</button>' : '') +
       '<button class="btn sm" data-act="openBox" data-id="' + esc(g.id) + '">Box score</button>' +
+      (g.status === 'live' && can('manage') ? '<button class="btn sm danger" data-act="endGameCard" data-id="' + esc(g.id) + '">End game</button>' : '') +
       (can('manage') ? '<button class="btn sm" data-act="editGame" data-id="' + esc(g.id) + '">Edit</button>' : '') + '</div></div>';
   };
   return (can('manage') ? '<div class="row" style="margin-top:14px"><span class="spacer"></span><button class="btn" data-act="bulkGames">Add many</button><button class="btn primary" data-act="editGame">+ New game</button></div>' : '') +
-    '<div class="section-title">Upcoming &amp; in progress</div>' + (upcoming.length ? upcoming.map(card).join('') : '<div class="card empty">No upcoming games.</div>') +
+    (grp.today.length ? '<div class="section-title">Today</div>' + grp.today.map(g => card(g, true)).join('') : '<div class="section-title">Today</div><div class="card empty">No game scheduled for today.</div>') +
+    '<div class="section-title">Coming up</div>' + (grp.upcoming.length ? grp.upcoming.map(g => card(g, false)).join('') : '<div class="card empty">No upcoming games.</div>') +
+    (grp.past.length ? '<details class="past-games"' + (!grp.today.length && !grp.upcoming.length ? ' open' : '') + '><summary>Past games not ended (' + grp.past.length + ')</summary>' +
+      '<p class="small muted" style="margin:6px 2px 0">' + esc(PAST_NOTE) + '</p>' + grp.past.map(g => card(g, false)).join('') + '</details>' : '') +
     '<p class="muted small" style="margin-top:12px">Finished games are on the Results tab.</p>';
 }
 
@@ -1258,7 +1307,7 @@ function viewResults() {
     const chip = showScore ? '<span class="chip ' + (x.r === 'W' ? 'win' : x.r === 'L' ? 'loss' : '') + '">' + x.r + '</span>' : '<span class="chip final">final</span>';
     html += '<div class="card click" data-act="openBox" data-id="' + esc(x.g.id) + '" style="cursor:pointer"><div class="row"><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:16px">' + esc(gameTitle(x.g)) + '</div>' +
       '<div class="muted small">' + esc(fmtDate(x.g.date)) + '</div></div>' +
-      '<div style="text-align:right">' + chip + (showScore ? '<div style="font-weight:800;font-size:18px;margin-top:2px">' + x.us + '–' + x.them + '</div>' : '') + '</div></div></div>';
+      '<div style="text-align:right">' + chip + (showScore ? '<div style="font-weight:800;font-size:18px;margin-top:2px">' + x.us + '–' + x.them + '</div>' + savedScoreNote(x.g, x.us, x.them) : '') + '</div></div></div>';
   });
   return html;
 }
@@ -1666,9 +1715,23 @@ function recordOppTap(code) {
   render();
 }
 
+// Questions to ask before stats go into a game that may be the wrong one. Returns false if the person backs out.
+function confirmTrackGame(g) {
+  if (g.date !== todayISO() && !confirm('This game is dated ' + fmtDate(g.date) + ', not today (' + fmtDate(todayISO()) + '). Track this game anyway?')) return false;
+  if (g.status === 'final' && !confirm('This game is already marked final. Add stats to it anyway?')) return false;
+  return true;
+}
+function knownGame(id) {
+  const d = S.data || {};
+  return (d.games || []).concat(d.playerGames || []).find(g => g.id === id) || null;
+}
+
 async function openGame(gameId, tab, mode) {
   mode = mode === 'personal' ? 'personal' : '';
   const prevView = S.view;
+  // Tracking the wrong game is easy to do by accident, so check the date and status first when we can.
+  const known = knownGame(gameId);
+  if (known && tab !== 'box' && (mode === 'personal' || canTrackGame(known)) && !confirmTrackGame(known)) return;
   S.view = 'loading'; render();
   await Queue.idle();
   Queue.paused = true;
@@ -1690,6 +1753,11 @@ async function openGame(gameId, tab, mode) {
     }
   }
   Queue.paused = false; Queue.flush();
+  // The game wasn't in our lists: check now that we know it, before showing it.
+  if (!known && tab !== 'box' && t.canTrack && !confirmTrackGame(t.game)) {
+    S.view = prevView; render();
+    return;
+  }
   const savedPeriod = store.get('gcs_period_' + localKey(gameId, mode), 0);
   S.t = Object.assign(t, {
     tab: t.canTrack ? (tab || 'track') : 'box', side: 'us', sel: null, armed: null,
@@ -1988,13 +2056,53 @@ const ACTS = {
       toast('Game marked ' + (status === 'scheduled' ? 'upcoming' : status));
     } catch (err) { err.auth ? logout(err.message) : toast(err.message); }
   },
+  async endGameCard(el) {
+    const g = S.data.games.find(x => x.id === el.dataset.id);
+    if (!g) return;
+    const box = S.data.boxes[g.id] || {};
+    if (!confirm('End the game ' + gameTitle(g) + ' on ' + fmtDate(g.date) + '?\n\nFinal score: ' + shortTeam() + ' ' + teamPts(box) + ' – ' + g.opponent + ' ' + oppPts(box) + '\n\nYou can still fix numbers afterwards.')) return;
+    el.disabled = true;
+    try {
+      await Queue.drain(g.id);
+      await call('setStatus', { gameId: g.id, status: 'final' });
+      await loadHome();
+      render();
+      toast('Game over: ' + gameTitle(g));
+    } catch (err) {
+      el.disabled = false;
+      err.auth ? logout(err.message) : toast(err.message);
+    }
+  },
+  timeout(el) {
+    const t = S.t;
+    if (!t || t.mode || !t.canTrack) return;
+    const us = el.dataset.side === 'us';
+    const label = (us ? shortTeam() : t.game.opponent) + ' timeout';
+    const play = commit('', [mkEv('', us ? 'TMO_US' : 'TMO_OPP', 1)], label, true);
+    toast(label + ' logged', play.id);
+    render();
+  },
+  endPeriod() {
+    const t = S.t;
+    if (!t || t.mode || !t.canTrack) return;
+    const n = t.period, label = periodLabel(n);
+    const play = commit('', [mkEv('', 'EOQ', 1)], 'End of ' + label, true);
+    let next = n < 4;
+    if (!next) next = confirm('Go to overtime?');
+    if (next) t.period = n + 1;
+    saveGameLocal();
+    render();
+    toast('End of ' + label + ' logged', play.id);
+  },
   async endGame(el) {
     const t = S.t, manager = can('manage');
     const label = el.textContent;
     const score = shortTeam() + ' ' + teamPts(t.box) + ', ' + t.game.opponent + ' ' + oppPts(t.box);
+    const scoreLine = 'Final score: ' + shortTeam() + ' ' + teamPts(t.box) + ' – ' + t.game.opponent + ' ' + oppPts(t.box);
+    const when = gameTitle(t.game) + ' on ' + fmtDate(t.game.date);
     if (!confirm(manager
-      ? 'End the game and mark it final?\n\nFinal score: ' + score + '\n\nYou can still fix numbers afterwards.'
-      : 'Submit final stats for ' + gameTitle(t.game) + '?\n\nFinal score: ' + score + '\n\nYou won\'t be able to change them after this.')) return;
+      ? 'End the game ' + when + '?\n\n' + scoreLine + '\n\nYou can still fix numbers afterwards.'
+      : 'Submit final stats for the game ' + when + '?\n\n' + scoreLine + '\n\nYou won\'t be able to change them after this.')) return;
     el.disabled = true; el.textContent = 'Saving all plays…';
     const ok = await Queue.drain(t.game.id, 20000);
     if (!ok) {

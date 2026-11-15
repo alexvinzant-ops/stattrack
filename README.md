@@ -125,6 +125,9 @@ Want a shorter link? Make a free one at [tinyurl.com](https://tinyurl.com) with 
 7. Open **Box score** and tap any player to fix a number with − / +. The opponent has its own box score below yours. Use **Game / Q1–Q4 / OT** at the top of the box score to see one quarter or overtime on its own. When fixing, pick **which quarter** the correction belongs to (it starts on the current quarter).
 8. When the game ends, tap **Game over: submit final stats** at the bottom of the Track screen (the coach sees **End game (mark final)**). The game then closes on the parent's phone.
 
+9. **Picking the right game:** the home screen and the coach's Games tab list **Today**'s game first, then **Coming up**, then **Past games not ended** (collapsed; if one wasn't played, ask the coach to remove it). The tracking screen always shows the game's date under the score. If the game isn't dated today you get an amber warning strip, and a confirm before it opens (also when a game is already final). Ending a game shows the date and score in its confirm. The coach can also tap **End game** on a live game's card on the Games tab.
+10. **Timeouts and end of quarter** (for film review): under the quarter buttons, tap **Timeout [team]** for either team or **End Q1** (etc.) when a quarter ends. Each is logged with a time and quarter, shows in *Recent plays* with Undo, and never changes scores or fouls. **End Q4** asks whether to go to overtime. These buttons aren't in the personal record of a player-parent.
+
 ### Reviewing (Coach, and anyone you let see the whole team)
 - **Season tab:** record, scoring, leaders, and the full player table. Switch between **Per game** and **Totals**, tap a column to sort, and tap a player for their game log. **Us vs. opponents** compares shooting, rebounds, turnovers, etc. per game, using only games where opponent stats were kept.
 - **Player trends:** tap a player (Season tab) to see a bar chart of their points, rebounds, assists, steals, turnovers, fouls, FG% or FT% game by game, with the season average. Parents allowed to see their own player get the same chart.
@@ -150,7 +153,7 @@ Want a shorter link? Make a free one at [tinyurl.com](https://tinyurl.com) with 
 | Settings | Team name, season, coach PIN |
 | Players | Roster (ID, number, name, active) |
 | Parents | People who can sign in, their PINs, and their access switches (TRUE/FALSE) |
-| Games | Schedule, assigned stat keeper, status, opponent jersey numbers |
+| Games | Schedule, assigned stat keeper, status, opponent jersey numbers, and the **Final Score** (e.g. `21-61`, saved when a game is ended, cleared if it's reopened, and refreshed if the coach fixes a final game) |
 | Events | Every tap (who, what, when, entered by). Opponent players appear as `opp:23` (or `opp:team`). Box scores are totals of these rows, which keeps a full history and makes undo safe. |
 | Season Stats / Game Log | Created when you tap *Update stats in Google Sheet* |
 
