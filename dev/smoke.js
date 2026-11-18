@@ -308,6 +308,16 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await coach.click('[data-act=resultsFilter][data-f=all]');
     await coach.click('[data-act=tab][data-tab=games]');
     assert.equal(await coach.locator('.card:has-text("Valley Christian")').count(), 0, 'final games are not on the Games tab');
+    // Coach settings tab: add an email for updates and save.
+    await coach.click('.top .gear');  // always-visible gear in the top bar
+    await coach.waitForSelector('text=Your email updates');
+    assert.match(await coach.getAttribute('input[name=notifyEmail]', 'placeholder'), /coach@example\.com/);
+    await coach.fill('input[name=notifyEmail]', 'coach.updates@example.com');
+    await coach.check('input[name=gameDayEmails]');
+    await coach.click('form[data-form=settings] button[type=submit]');
+    await coach.waitForSelector('.toast:has-text("Saved")');
+    assert.equal(await coach.evaluate(() => S.data.settings.notifyEmail), 'coach.updates@example.com');
+    await shot(coach, '09c-settings');
     // Printable box score (coach only).
     await coach.click('[data-act=tab][data-tab=results]');
     await coach.click('.card[data-act=openBox]:has-text("Valley Christian")');
@@ -352,6 +362,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     assert.equal(await viewer.locator('.tile:has-text("Record")').count(), 0, 'no scoring = no record/points');
     await shot(viewer, '07b-viewer-season');
     assert.equal(await viewer.locator('[data-tab=parents]').count(), 0);
+    assert.equal(await viewer.locator('[data-tab=settings]').count(), 0, 'settings are coach-only');
     assert.equal(await viewer.locator('[data-tab=roster]').count(), 0);
     assert.equal(await viewer.locator('text=Google Sheet').count(), 0);
     await viewer.click('[data-act=tab][data-tab=games]');

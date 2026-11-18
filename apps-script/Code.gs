@@ -429,6 +429,11 @@ function checkGameAccess_(who, g) {
 // Coach-only actions
 // ---------------------------------------------------------------------------
 
+/** The account the app runs as (the coach); where updates go when no other address is set. */
+function coachEmail_() {
+  try { return Session.getEffectiveUser().getEmail() || ''; } catch (e) { return ''; }
+}
+
 function all_(who) {
   const s = getSettings_();
   const isCoach = !who || who.role === 'coach';
@@ -438,7 +443,7 @@ function all_(who) {
   return {
     me: who ? me_(who) : { role: 'coach', name: 'Coach', teamName: s.teamName, perms: ALL_PERMS },
     settings: isCoach
-      ? { teamName: s.teamName, season: s.season, gameEmails: s.gameEmails, notifyEmail: s.notifyEmail, gameDayEmails: s.gameDayEmails, gameDayHour: s.gameDayHour }
+      ? { teamName: s.teamName, season: s.season, gameEmails: s.gameEmails, notifyEmail: s.notifyEmail, gameDayEmails: s.gameDayEmails, gameDayHour: s.gameDayHour, coachEmail: coachEmail_() }
       : { teamName: s.teamName, season: s.season },
     players: listPlayers_(),
     // PINs and permissions are only ever sent to the coach.

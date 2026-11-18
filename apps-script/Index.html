@@ -243,6 +243,7 @@ table.pt.quarters { width: auto; min-width: 50%; }
   .print-page { padding: 0; max-width: none; }
 }
 @media screen and (max-width: 700px) { body.show-print .print-page { overflow-x: auto; } }
+.top .link.gear { font-size: 22px; line-height: 1; padding: 4px 8px; }
 .alerts { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
 .alert { font-size: 13px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--warn-bg); color: #6b4300; }
 .alert.bad { background: var(--bad-bg); color: var(--bad); }
@@ -1080,7 +1081,7 @@ function quarterCard() {
 function coachTabList() {
   const tabs = [['season', 'Season'], ['results', 'Results'], ['games', 'Games']];
   if (can('manage')) tabs.push(['roster', 'Roster']);
-  if (S.me.role === 'coach') tabs.push(['parents', 'Access']);
+  if (S.me.role === 'coach') tabs.push(['parents', 'Access'], ['settings', '⚙ Settings']);
   return tabs;
 }
 function coachTabs() {
@@ -1088,13 +1089,16 @@ function coachTabs() {
   return '<div class="tabs">' + tabs.map(([k, l]) => '<button class="' + (S.tab === k ? 'on' : '') + '" data-act="tab" data-tab="' + k + '">' + l + '</button>').join('') + '</div>';
 }
 function viewCoach() {
-  const right = '<button class="link" data-act="refresh">Refresh</button><button class="link" data-act="logout">Sign out</button>';
+  const right = '<button class="link" data-act="refresh">Refresh</button>' +
+    (S.me.role === 'coach' ? '<button class="link gear" data-act="tab" data-tab="settings" aria-label="Settings" title="Settings">⚙</button>' : '') +
+    '<button class="link" data-act="logout">Sign out</button>';
   let body;
   if (S.tab === 'season') body = viewSeason();
   else if (S.tab === 'results') body = viewResults();
   else if (S.tab === 'games') body = viewGames();
   else if (S.tab === 'roster' && can('manage')) body = viewRoster();
   else if (S.tab === 'parents' && S.me.role === 'coach') body = viewParents();
+  else if (S.tab === 'settings' && S.me.role === 'coach') body = viewSettings();
   else body = viewSeason();
   const title = S.me.role === 'coach' ? S.teamName : S.teamName + ' · ' + S.me.name;
   return topBar(title, '', right, coachTabs()) + '<div class="wrap">' + body + '</div>';
@@ -1320,18 +1324,33 @@ function viewRoster() {
     (p.active ? '' : '<div class="muted small">Inactive (keeps past stats)</div>') + '</div><button class="btn sm" data-act="editPlayer" data-id="' + esc(p.id) + '">Edit</button></div>';
   return '<div class="row wrap-row" style="margin-top:14px"><span class="spacer"></span><button class="btn" data-act="bulkPlayers">Add many</button><button class="btn primary" data-act="editPlayer">+ Add player</button></div>' +
     '<div class="card">' + (active.length ? active.map(item).join('') : '<div class="empty">No players yet.</div>') + '</div>' +
-    (inactive.length ? '<div class="section-title">Inactive</div><div class="card">' + inactive.map(item).join('') + '</div>' : '') +
-    (S.me.role !== 'coach' ? '' : '<div class="section-title">Team settings</div><div class="card"><form data-form="settings">' +
-    '<label class="field">Team name<input name="teamName" value="' + esc(d.settings.teamName) + '" maxlength="60"></label>' +
-    '<label class="field">Season<input name="season" value="' + esc(d.settings.season) + '" maxlength="20"></label>' +
-    '<label class="row" style="gap:8px;margin:6px 0"><input type="checkbox" name="gameEmails"' + (d.settings.gameEmails !== false ? ' checked' : '') + '> Email me when a parent finishes a game</label>' +
-    '<label class="row" style="gap:8px;margin:6px 0"><input type="checkbox" name="gameDayEmails"' + (d.settings.gameDayEmails ? ' checked' : '') + '> Email the assigned parents on game day</label>' +
-    '<label class="field">around<select name="gameDayHour">' + [5, 6, 7, 8, 9, 10, 11].map(h => '<option value="' + h + '"' + (h === (d.settings.gameDayHour || 7) ? ' selected' : '') + '>' + h + ' AM</option>').join('') + '</select></label>' +
-    '<p class="muted small" style="margin:2px 0 8px">Only parents with an email address on the Access tab get it. Texts aren\'t available: Google can\'t send text messages.</p>' +
-    '<button class="btn sm" type="button" data-act="sendGameDayNow" style="margin-bottom:10px">Send today\'s reminders now</button>' +
-    '<label class="field">Send to (leave blank for your Google account)<input name="notifyEmail" type="email" value="' + esc(d.settings.notifyEmail || '') + '" maxlength="120"></label>' +
-    '<div class="err"></div><button class="btn primary" type="submit">Save</button>' +
-    '<p class="muted small">To change your coach PIN, edit <b>Coach PIN</b> on the Settings tab of the spreadsheet.</p></form></div>');
+    (inactive.length ? '<div class="section-title">Inactive</div><div class="card">' + inactive.map(item).join('') + '</div>' : '');
+}
+
+// Coach-only settings: where updates go, game-day reminders, team info.
+function viewSettings() {
+  const d = S.data, st = d.settings;
+  const account = st.coachEmail || 'your Google account';
+  const check = (name, on, title, desc) => '<label class="check choice"><input type="checkbox" name="' + name + '"' + (on ? ' checked' : '') + '><span>' + title +
+    (desc ? '<span class="muted small">' + desc + '</span>' : '') + '</span></label>';
+  return '<form data-form="settings">' +
+    '<div class="section-title">Your email updates</div><div class="card">' +
+    '<label class="field">Your email address for updates<input name="notifyEmail" type="email" value="' + esc(st.notifyEmail || '') + '" maxlength="120" placeholder="' + esc(st.coachEmail || 'name@example.com') + '" autocomplete="email"></label>' +
+    '<p class="muted small" style="margin:4px 0 6px">Leave blank to use ' + esc(account) + '.</p>' +
+    check('gameEmails', st.gameEmails !== false, 'Email me when a parent finishes a game', 'Final score, scoring by quarter, and every player\'s line.') +
+    '</div>' +
+    '<div class="section-title">Game-day reminders for parents</div><div class="card">' +
+    check('gameDayEmails', !!st.gameDayEmails, 'Email the assigned parents on game day', 'Their link, PIN, opponent, and quick steps. Only parents with an email on the Access tab get it.') +
+    '<label class="field">Send around<select name="gameDayHour">' + [5, 6, 7, 8, 9, 10, 11].map(h => '<option value="' + h + '"' + (h === (st.gameDayHour || 7) ? ' selected' : '') + '>' + h + ' AM</option>').join('') + '</select></label>' +
+    '<button class="btn sm" type="button" data-act="sendGameDayNow" style="margin-top:10px">Send today\'s reminders now</button>' +
+    '<p class="muted small" style="margin:8px 0 0">Text messages aren\'t available: Google can\'t send texts without a paid service.</p>' +
+    '</div>' +
+    '<div class="section-title">Team</div><div class="card">' +
+    '<label class="field">Team name<input name="teamName" value="' + esc(st.teamName) + '" maxlength="60"></label>' +
+    '<label class="field">Season<input name="season" value="' + esc(st.season) + '" maxlength="20"></label>' +
+    '<p class="muted small">To change your coach PIN, edit <b>Coach PIN</b> on the Settings tab of the spreadsheet.</p>' +
+    '</div>' +
+    '<div class="err"></div><button class="btn primary big" type="submit" style="margin-top:12px">Save settings</button></form>';
 }
 
 // Stat groups the coach can allow per person (same keys as the server's STAT_GROUPS).
