@@ -14,7 +14,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
 
 (async () => {
   const server = spawn(process.execPath, [path.join(__dirname, 'server.js')], { env: { ...process.env, PORT, DATA_FILE: dataFile } });
-  const coachPin = await new Promise((resolve, reject) => {
+  let coachPin = await new Promise((resolve, reject) => {
     server.stdout.on('data', d => { const m = /coach PIN: (\d+)/.exec(String(d)); if (m) resolve(m[1]); });
     server.stderr.on('data', d => reject(new Error(String(d))));
   });
@@ -182,7 +182,7 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     await parent.click('[data-act=timeout][data-side=us]');
     await parent.click('[data-act=timeout][data-side=opp]');
     await parent.click('[data-act=timeout][data-side=us]');
-    assert.match(await parent.textContent('[data-timeouts]'), /Timeouts: .* 2 · Valley 1/, 'timeout counts');
+    assert.match(await parent.textContent('[data-timeouts]'), /Timeouts left: .* 3 · Valley 4/, 'timeouts left (default 5 per game)');
     const recent = await parent.textContent('.card.plays');
     assert.match(recent, /Valley Christian timeout/);
     await parent.evaluate(() => window.scrollTo(0, 0));
@@ -314,10 +314,54 @@ const dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoops-')), 'da
     assert.match(await coach.getAttribute('input[name=notifyEmail]', 'placeholder'), /coach@example\.com/);
     await coach.fill('input[name=notifyEmail]', 'coach.updates@example.com');
     await coach.check('input[name=gameDayEmails]');
-    await coach.click('form[data-form=settings] button[type=submit]');
+    await coach.fill('input[name=foulOut]', '4');
+    await coach.fill('input[name=bonusFouls]', '4');
+    await coach.fill('input[name=timeouts]', '3');
+    await coach.check('input[name=color][value="#7a1d2e"]', { force: true });
+    await coach.click('button[type=submit][form=settingsForm]');
     await coach.waitForSelector('.toast:has-text("Saved")');
     assert.equal(await coach.evaluate(() => S.data.settings.notifyEmail), 'coach.updates@example.com');
+    assert.deepEqual(await coach.evaluate(() => [S.data.settings.foulOut, S.data.settings.bonusFouls, S.data.settings.timeouts, S.data.settings.color]), [4, 4, 3, '#7a1d2e']);
+    assert.equal(await coach.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()), '#7a1d2e', 'team colour applied');
+    assert.equal(await coach.evaluate(() => JSON.parse(localStorage.getItem('gcs_color'))), '#7a1d2e', 'colour remembered');
+    // A custom foul-out rule changes the alert: with foulOut 4, a 3-foul player is "bad" (one from out) and 4 is FOULED OUT.
+    const alertHtml = await coach.evaluate(() => {
+      const old = S.t;
+      S.t = { mode: '', periods: {}, period: 1, box: { p1: { PF: 3 }, p2: { PF: 4 } }, players: [{ id: 'p1', number: '5', name: 'Eli Test', active: true }, { id: 'p2', number: '6', name: 'Max Test', active: true }], game: { opponent: 'Valley', oppRoster: [] }, rules: { foulOut: 4, bonusFouls: 4, timeouts: 3 } };
+      try { return foulAlerts(); } finally { S.t = old; }
+    });
+    assert.match(alertHtml, /alert bad">#5 Eli: 3 fouls/, 'one foul from out at foulOut 4');
+    assert.match(alertHtml, /alert out">#6 Max: FOULED OUT/, 'fouled out at 4');
     await shot(coach, '09c-settings');
+    // Full Settings page in one tall screenshot.
+    if (shots) {
+      await coach.setViewportSize({ width: 390, height: 2600 });
+      await coach.evaluate(() => window.scrollTo(0, 0));
+      await coach.screenshot({ path: path.join(shots, '09d-settings-full.png'), fullPage: true });
+      await coach.setViewportSize({ width: 390, height: 844 });
+    }
+    // Change the coach PIN in the app: errors first, then success, and the coach stays signed in.
+    const newCoachPin = '73519246';
+    await coach.fill('form[data-form=coachPin] input[name=current]', '1111');
+    await coach.fill('form[data-form=coachPin] input[name=next]', newCoachPin);
+    await coach.fill('form[data-form=coachPin] input[name=confirm]', newCoachPin);
+    await coach.click('form[data-form=coachPin] button[type=submit]');
+    await coach.waitForSelector('[data-pin-err]:has-text("current PIN isn\'t right")');
+    await coach.fill('form[data-form=coachPin] input[name=current]', coachPin);
+    await coach.fill('form[data-form=coachPin] input[name=confirm]', '99999999');
+    await coach.click('form[data-form=coachPin] button[type=submit]');
+    await coach.waitForSelector('[data-pin-err]:has-text("don\'t match")');
+    await coach.fill('form[data-form=coachPin] input[name=confirm]', newCoachPin);
+    await coach.click('form[data-form=coachPin] button[type=submit]');
+    await coach.waitForSelector('.toast:has-text("Coach PIN changed")');
+    assert.equal(await coach.evaluate(() => S.pin), newCoachPin);
+    assert.equal(await coach.evaluate(() => JSON.parse(localStorage.getItem('gcs_pin'))), newCoachPin);
+    coachPin = newCoachPin;
+    // Still signed in: the next request with the new PIN works, and a reload stays signed in.
+    await coach.reload();
+    await coach.waitForSelector('.tabs');
+    await coach.click('.top .gear');
+    await coach.waitForSelector('text=Your email updates');
     // Printable box score (coach only).
     await coach.click('[data-act=tab][data-tab=results]');
     await coach.click('.card[data-act=openBox]:has-text("Valley Christian")');

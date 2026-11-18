@@ -17,6 +17,9 @@
  */
 
 const TEAM_DEFAULT = 'My Team';
+const TEAM_COLORS = ['#1c3d8c', '#7a1d2e', '#1f5d3a', '#4b2a84', '#1d2433', '#b0242c'];
+// Game rules: [setting name, default, min, max]
+const RULES = { foulOut: ['Foul Out', 5, 4, 6], bonusFouls: ['Bonus Fouls', 5, 3, 10], timeouts: ['Timeouts Per Game', 5, 0, 10] };
 
 const TABLES = {
   Settings: ['Setting', 'Value'],
@@ -83,7 +86,7 @@ function doGet() {
 function setup() {
   ensureSetup_();
   Logger.log('Setup complete. Your coach PIN is ' + getSettings_().coachPin +
-    '. You can change it on the Settings tab of the spreadsheet.');
+    '. You can change it in the app under the Settings tab.');
 }
 
 /** The single function the web page calls (google.script.run.api). */
@@ -117,6 +120,7 @@ const ACTIONS = {
   deleteParent: { need: 'coach', run: deleteParent_ },
   emailInvite: { need: 'coach', run: emailInvite_ },
   saveSettings: { need: 'coach', run: saveSettings_ },
+  changeCoachPin: { need: 'coach', run: changeCoachPin_ },
   writeReport: { need: 'coach', run: writeReport_ },
   sendGameDayNow: { need: 'coach', run: () => sendGameDayReminders_({ force: true }) },
 };
@@ -155,6 +159,22 @@ function randomPin_(len, taken) {
   throw new Error('Could not generate a unique PIN.');
 }
 
+/** 4 to 8 digits, no leading zero (normPin_ strips leading zeros, so they would be ambiguous). */
+function validPinFormat_(v) {
+  return /^[1-9]\d{3,7}$/.test(String(v == null ? '' : v).trim());
+}
+
+function changeCoachPin_(who, d) {
+  return withLock_(() => {
+    if (normPin_(d.current) !== normPin_(getSettings_().coachPin)) throw new Error("Your current PIN isn't right.");
+    if (!validPinFormat_(d.next)) throw new Error("PINs are 4 to 8 digits and can't start with 0.");
+    const next = String(d.next).trim();
+    if (takenPins_()[normPin_(next)]) throw new Error('That PIN is already used by someone else.');
+    setSetting_('Coach PIN', next);
+    return { ok: true };
+  });
+}
+
 function takenPins_() {
   const taken = {};
   taken[normPin_(getSettings_().coachPin)] = true;
@@ -170,12 +190,19 @@ function me_(who) {
   return { role: who.role, id: who.id, name: who.name, teamName: getSettings_().teamName, perms: who.perms, players: who.players || [] };
 }
 
+/** Settings that aren't secret: everyone who signs in gets these. */
+function publicSettings_() {
+  const s = getSettings_();
+  return { teamName: s.teamName, season: s.season, foulOut: s.foulOut, bonusFouls: s.bonusFouls, timeouts: s.timeouts, color: s.color };
+}
+
 function scorerHome_(who) {
   const all = listGames_().sort((a, b) => a.date.localeCompare(b.date));
   const games = all.filter(g => g.status !== 'final' && (g.scorerIds.indexOf(who.id) >= 0 || who.perms.trackAny || who.perms.manage));
   const mine = myPlayers_(who);
   const out = {
     me: me_(who),
+    settings: publicSettings_(),
     games: games,
     // Games where a player-parent can keep their own record of their players.
     playerGames: mine.length ? all.filter(g => g.status !== 'final') : [],
@@ -225,6 +252,7 @@ function getGame_(who, data) {
   }
   const out = {
     game: g, box: box, players: players,
+    rules: (r => ({ foulOut: r.foulOut, bonusFouls: r.bonusFouls, timeouts: r.timeouts }))(getSettings_()),
     canTrack: track,
     canFix: track && !!(who.perms.fixStats || who.perms.manage),
     periods: byPeriod.periods,
@@ -443,8 +471,8 @@ function all_(who) {
   return {
     me: who ? me_(who) : { role: 'coach', name: 'Coach', teamName: s.teamName, perms: ALL_PERMS },
     settings: isCoach
-      ? { teamName: s.teamName, season: s.season, gameEmails: s.gameEmails, notifyEmail: s.notifyEmail, gameDayEmails: s.gameDayEmails, gameDayHour: s.gameDayHour, coachEmail: coachEmail_() }
-      : { teamName: s.teamName, season: s.season },
+      ? Object.assign(publicSettings_(), { gameEmails: s.gameEmails, notifyEmail: s.notifyEmail, gameDayEmails: s.gameDayEmails, gameDayHour: s.gameDayHour, coachEmail: coachEmail_() })
+      : publicSettings_(),
     players: listPlayers_(),
     // PINs and permissions are only ever sent to the coach.
     parents: readTable_('Parents').map(parent_).map(p => (isCoach ? p : { id: p.id, name: p.name, active: p.active })),
@@ -563,6 +591,8 @@ function saveParent_(who, d) {
   const email = clean_(d.email, 100).toLowerCase();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("That email address doesn't look right.");
   const phone = cleanPhone_(d.phone);
+  const wantPin = d.pin === undefined || d.pin === null ? '' : String(d.pin).trim();
+  if (wantPin && !validPinFormat_(wantPin)) throw new Error("PINs are 4 to 8 digits and can't start with 0.");
   const obj = {
     Name: name, Active: active, Players: players.join(','), Email: email, Phone: phone,
     'Track Stats': groupText_(d.trackGroups, TRACK_GROUPS),
@@ -573,13 +603,23 @@ function saveParent_(who, d) {
     if (d.id) {
       const row = findRow_('Parents', d.id);
       obj.ID = row.ID;
-      obj.PIN = d.newPin ? randomPin_(4, takenPins_()) : str_(row.PIN);
+      let pin = str_(row.PIN);
+      if (d.newPin) pin = randomPin_(4, takenPins_());
+      else if (wantPin && normPin_(wantPin) !== normPin_(pin)) {
+        const taken = takenPins_();
+        delete taken[normPin_(pin)];
+        if (taken[normPin_(wantPin)]) throw new Error('That PIN is already used by someone else.');
+        pin = wantPin;
+      }
+      obj.PIN = pin;
       // A new PIN or a new address means the old invite is out of date.
-      obj.Invited = d.newPin || email !== str_(row.Email).toLowerCase() ? '' : str_(row.Invited);
+      obj.Invited = pin !== str_(row.PIN) || email !== str_(row.Email).toLowerCase() ? '' : str_(row.Invited);
       writeRow_('Parents', row._row, obj);
     } else {
       obj.ID = newId_('U');
-      obj.PIN = randomPin_(4, takenPins_());
+      const taken = takenPins_();
+      if (wantPin && taken[normPin_(wantPin)]) throw new Error('That PIN is already used by someone else.');
+      obj.PIN = wantPin || randomPin_(4, taken);
       appendRows_('Parents', [TABLES.Parents.map(h => obj[h])]);
     }
   });
@@ -633,7 +673,18 @@ function saveSettings_(who, d) {
   const hourGiven = d.gameDayHour !== undefined && d.gameDayHour !== null && d.gameDayHour !== '';
   const hour = Number(d.gameDayHour);
   if (hourGiven && !(Number.isInteger(hour) && hour >= 5 && hour <= 11)) throw new Error('Pick an hour between 5 AM and 11 AM.');
+  const rules = {};
+  Object.keys(RULES).forEach(k => {
+    if (d[k] === undefined || d[k] === null || d[k] === '') return;
+    const r = RULES[k], n = Number(d[k]);
+    if (!(Number.isInteger(n) && n >= r[2] && n <= r[3])) throw new Error(r[0] + ' must be a whole number from ' + r[2] + ' to ' + r[3] + '.');
+    rules[k] = n;
+  });
+  const color = d.color === undefined || d.color === null || d.color === '' ? '' : String(d.color).trim().toLowerCase();
+  if (color && TEAM_COLORS.indexOf(color) < 0) throw new Error('Pick one of the team colors.');
   withLock_(() => {
+    Object.keys(rules).forEach(k => setSetting_(RULES[k][0], rules[k]));
+    if (color) setSetting_('Team Color', color);
     const teamName = clean_(d.teamName, 60);
     if (teamName) setSetting_('Team Name', teamName);
     const season = clean_(d.season, 20);
@@ -692,7 +743,16 @@ function getSettings_() {
     notifyEmail: map['Notify Email'] || '',
     gameDayEmails: String(map['Game Day Emails'] || 'off').trim().toLowerCase() === 'on',
     gameDayHour: gameDayHour_(map['Game Day Email Hour']),
+    foulOut: rule_(map['Foul Out'], RULES.foulOut),
+    bonusFouls: rule_(map['Bonus Fouls'], RULES.bonusFouls),
+    timeouts: rule_(map['Timeouts Per Game'], RULES.timeouts),
+    color: TEAM_COLORS.indexOf(String(map['Team Color'] || '').trim().toLowerCase()) >= 0 ? String(map['Team Color']).trim().toLowerCase() : TEAM_COLORS[0],
   };
+}
+
+function rule_(v, r) {
+  const n = Number(v);
+  return v !== '' && v != null && Number.isInteger(n) && n >= r[2] && n <= r[3] ? n : r[1];
 }
 
 function gameDayHour_(v) {
@@ -1299,7 +1359,7 @@ function appInfoHtml_(r) {
     '<div class="box"><b>App link</b> (for you and your parents)<input readonly value="' + esc_(r.url) + '" onclick="this.select()"></div>' +
     '<p><a class="btn" href="' + esc_(r.url) + '" target="_blank">Open my app</a></p>' +
     '<div class="box"><b>Your coach PIN</b><div class="pin">' + esc_(r.pin) + '</div>' +
-    '<div class="muted">Keep this to yourself. You can change it on the Settings tab.</div></div>' +
+    '<div class="muted">Keep this to yourself. You can change it in the app (⚙ Settings).</div></div>' +
     '<b>Next:</b><ol><li>Open the link on your phone, sign in with your PIN, and tap Share → Add to Home Screen.</li>' +
     '<li><b>Roster</b> tab → Add many → paste your players.</li>' +
     '<li><b>Games</b> tab → Add many → paste your schedule.</li>' +
