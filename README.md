@@ -50,7 +50,7 @@ Each copy automatically gets its own coach PIN and an empty parents list, even i
    - If you see *"Google hasn't verified this app"*, click **Advanced → Go to (project name)**. That warning appears because you wrote the app yourself.
    - Click **Allow**.
 
-   The log at the bottom shows **your coach PIN**. You'll also find it on the new **Settings** tab of your spreadsheet, where you can change it to any number (6+ digits recommended).
+   The log at the bottom shows **your coach PIN**. Once you're in the app, change it any time under **⚙ Settings → Coach PIN** (4 to 8 digits, not starting with 0).
 5. **Publish it as a web app.** Click **Deploy → New deployment**, then click the ⚙️ gear and pick **Web app**. Set:
    - **Execute as:** *Me*
    - **Who has access:** *Anyone*
@@ -109,7 +109,14 @@ Want a shorter link? Make a free one at [tinyurl.com](https://tinyurl.com) with 
 
 **Only the coach PIN** can see PINs, add or remove people, change access, delete games, change team settings, or export to the spreadsheet. Unticking **Can sign in** turns someone off without deleting them.
 
-**Game-end emails:** when a parent or other non-coach taps submit and a game becomes final, you get one email with the final score, scoring by quarter, and each player's line (PTS, REB, AST, STL, FG, 3P, FT, PF). On the coach-only **⚙ Settings** tab you can turn this off (**Email me when a parent finishes a game**) or enter **Your email address for updates** (blank means your Google account). The coach ending a game never sends an email. These are stored as **Game Emails** and **Notify Email** on the Settings tab.
+**Game-end emails:** when a parent or other non-coach taps submit and a game becomes final, you get one email with the final score, scoring by quarter, and each player's line (PTS, REB, AST, STL, FG, 3P, FT, PF). On the coach-only **⚙ Settings** tab you can turn this off (**Email me when a parent finishes a game**) or enter **Your email address for updates** (blank means your Google account). The coach ending a game never sends an email. 
+
+**Everything is set from ⚙ Settings.** You never need to open the spreadsheet to change a setting. The page has these sections:
+- **Your email updates** and **Game-day reminders for parents** (below).
+- **Coach PIN:** enter your current PIN, a new one twice, and tap **Change PIN**.
+- **Game rules:** fouls to foul out (4-6, default 5), team fouls per quarter for the bonus (3-10, default 5), and timeouts per game (0-10, default 5). Everyone tracking a game sees the alerts and the "Timeouts left" line use these.
+- **Team:** name, season, and team colour (six presets).
+- **App link:** copy the link to share. To set or change a parent's PIN, tap **Edit** on their name on the **Access** tab and type a 4 to 8 digit PIN (or tick **Give them a new PIN**).
 
 **Game-day emails:** on the **⚙ Settings** tab, tick **Email the assigned parents on game day** and pick an hour (5-11 AM, default 7). Each morning, every parent assigned to that day's game who has an email address (set on the Access tab) gets one reminder with the app link, their PIN, and four short steps; nobody is emailed twice for the same game (tracked in the **Reminded** column of the Games tab). **Send today's reminders now** sends today's reminders immediately. Turning this on schedules a daily trigger, so re-deploy with the updated `appsscript.json` and approve the new permission. Text messages aren't possible: Google can't send them without a paid third-party service.
 
@@ -147,7 +154,7 @@ Want a shorter link? Make a free one at [tinyurl.com](https://tinyurl.com) with 
 - PINs, access settings, the app link, and the spreadsheet link are only ever sent to the coach PIN.
 - After 30 wrong PINs in 15 minutes, sign-in pauses for everyone for 15 minutes.
 - To cut off a parent, untick **Can sign in**, remove them, or tap **Give them a new PIN** on the Access tab.
-- To change your coach PIN, edit **Coach PIN** on the spreadsheet's **Settings** tab.
+- Change your coach PIN in the app under **⚙ Settings → Coach PIN**. You'll stay signed in on that phone.
 
 ## What's in the spreadsheet
 | Tab | What it holds |

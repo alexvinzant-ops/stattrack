@@ -108,6 +108,12 @@ label.check { display: flex; align-items: center; gap: 10px; padding: 10px 0; fo
 label.check input { width: 22px; height: 22px; flex: none; }
 .form-actions { display: flex; gap: 8px; margin-top: 18px; }
 .form-actions .btn { flex: 1; }
+.swatches { display: flex; gap: 12px; flex-wrap: wrap; margin: 6px 0 4px; }
+.swatch { position: relative; cursor: pointer; }
+.swatch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.swatch span { display: block; width: 40px; height: 40px; border-radius: 50%; border: 3px solid transparent; box-shadow: inset 0 0 0 2px rgba(255,255,255,.7); }
+.swatch input:checked + span { border-color: var(--ink); }
+.swatch input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
 .err { color: var(--bad); font-weight: 600; min-height: 1.4em; margin-top: 8px; }
 .note { background: var(--warn-bg); color: #6b4300; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-top: 10px; }
 
@@ -449,6 +455,14 @@ function byNumber(a, b) {
 // ===========================================================================
 // App state
 // ===========================================================================
+// Team colour: remembered on this phone so the sign-in screen matches next time.
+const TEAM_COLORS = [['#1c3d8c', 'Navy'], ['#7a1d2e', 'Maroon'], ['#1f5d3a', 'Forest'], ['#4b2a84', 'Purple'], ['#1d2433', 'Black'], ['#b0242c', 'Red']];
+function applyColor(c) {
+  if (!c || !TEAM_COLORS.some(x => x[0] === c)) return;
+  document.documentElement.style.setProperty('--accent', c);
+  store.set('gcs_color', c);
+}
+applyColor(store.get('gcs_color', ''));
 const S = {
   pin: store.get('gcs_pin', ''),
   teamName: store.get('gcs_team', 'Team Stats'),
@@ -764,24 +778,35 @@ function periodBar() {
   const q = (t.periods || {})[t.period] || {};
   const fouls = t.mode ? '' : '<div class="team-fouls">Team fouls ' + periodLabel(t.period) + ': <b>' + esc(shortTeam()) + ' ' + n0(q.usPF) + '</b> · ' + esc(t.game.opponent) + ' ' + n0(q.oppPF) + '</div>';
   const tm = (t.box[TEAM] || {});
+  const R = rules();
   const marks = t.mode ? '' : '<div class="mark-row">' +
     '<button data-act="timeout" data-side="us">Timeout ' + esc(shortTeam()) + '</button>' +
     '<button data-act="timeout" data-side="opp">Timeout ' + esc(shortOpp()) + '</button>' +
     '<button data-act="endPeriod">End ' + periodLabel(t.period) + '</button>' +
-    '<div class="mark-count" data-timeouts>Timeouts: ' + esc(shortTeam()) + ' ' + n0(tm.TMO_US) + ' · ' + esc(shortOpp()) + ' ' + n0(tm.TMO_OPP) + '</div></div>';
+    '<div class="mark-count" data-timeouts>' + (R.timeouts > 0
+      ? 'Timeouts left: ' + esc(shortTeam()) + ' ' + Math.max(0, R.timeouts - n0(tm.TMO_US)) + ' · ' + esc(shortOpp()) + ' ' + Math.max(0, R.timeouts - n0(tm.TMO_OPP))
+      : 'Timeouts: ' + esc(shortTeam()) + ' ' + n0(tm.TMO_US) + ' · ' + esc(shortOpp()) + ' ' + n0(tm.TMO_OPP)) + '</div></div>';
   return '<div class="period-bar"><div class="inner"><div class="seg period-seg">' + btns.join('') + '</div>' + fouls + marks + '</div></div>';
 }
 
-// NFHS: team fouls reset every quarter; the 5th team foul in a quarter puts the other team in the bonus.
-const BONUS_FOULS = 5;
+// Game rules (coach sets them in Settings). Defaults follow NFHS: 5 fouls to foul out, bonus on the 5th team foul in a quarter.
+const DEFAULT_RULES = { foulOut: 5, bonusFouls: 5, timeouts: 5 };
+function rules() {
+  const pick = o => (o && typeof o === 'object') ? o : null;
+  const src = pick(S.t && S.t.rules) || pick(S.data && S.data.settings) || {};
+  const out = {};
+  Object.keys(DEFAULT_RULES).forEach(k => { out[k] = Number.isFinite(Number(src[k])) && src[k] !== '' && src[k] !== null ? Number(src[k]) : DEFAULT_RULES[k]; });
+  return out;
+}
 function foulAlerts() {
+  const R = rules();
   const t = S.t;
   if (t.mode || !canSeeGroup('pf')) return '';
   const items = [];
   const q = (t.periods || {})[t.period] || {};
   const bonus = (fouls, who) => {
-    if (fouls >= BONUS_FOULS) items.push('<span class="alert bad">' + esc(who) + ' in the bonus</span>');
-    else if (fouls === BONUS_FOULS - 1) items.push('<span class="alert warn">1 more foul = ' + esc(who) + ' in the bonus</span>');
+    if (fouls >= R.bonusFouls) items.push('<span class="alert bad">' + esc(who) + ' in the bonus</span>');
+    else if (fouls === R.bonusFouls - 1) items.push('<span class="alert warn">1 more foul = ' + esc(who) + ' in the bonus</span>');
   };
   if (Object.keys(t.periods || {}).length) {
     bonus(n0(q.oppPF), shortTeam());          // their fouls give US the bonus
@@ -789,11 +814,11 @@ function foulAlerts() {
   }
   gamePlayers().forEach(p => {
     const f = n0((t.box[p.id] || {}).PF);
-    if (f >= 3) items.push('<span class="alert ' + (f >= 5 ? 'out' : f >= 4 ? 'bad' : 'warn') + '">' + esc(p.number !== '' ? '#' + p.number + ' ' : '') + esc(p.name.split(' ')[0]) + ': ' + (f >= 5 ? 'FOULED OUT' : f + ' fouls') + '</span>');
+    if (f >= 3) items.push('<span class="alert ' + (f >= R.foulOut ? 'out' : f >= R.foulOut - 1 ? 'bad' : 'warn') + '">' + esc(p.number !== '' ? '#' + p.number + ' ' : '') + esc(p.name.split(' ')[0]) + ': ' + (f >= R.foulOut ? 'FOULED OUT' : f + ' fouls') + '</span>');
   });
   oppPlayerList(t.game.oppRoster, t.box).forEach(p => {
     const f = n0((t.box[p.id] || {}).PF);
-    if (p.id !== 'opp:team' && f >= 4) items.push('<span class="alert muted-alert">Opp #' + esc(p.number) + ': ' + (f >= 5 ? 'fouled out' : f + ' fouls') + '</span>');
+    if (p.id !== 'opp:team' && f >= R.foulOut - 1) items.push('<span class="alert muted-alert">Opp #' + esc(p.number) + ': ' + (f >= R.foulOut ? 'fouled out' : f + ' fouls') + '</span>');
   });
   return items.length ? '<div class="alerts">' + items.join('') + '</div>' : '';
 }
@@ -848,7 +873,7 @@ function viewTracker() {
   else hint = 'Tap a player, then a stat';
   const tiles = ps.map(p => {
     const l = line(t.box[p.id]);
-    const fc = l.PF >= 5 ? 'foul5' : l.PF >= 4 ? 'foul4' : '';
+    const fc = l.PF >= rules().foulOut ? 'foul5' : l.PF >= rules().foulOut - 1 ? 'foul4' : '';
     return '<button class="pbtn ' + (p.id === t.sel ? 'sel' : '') + '" data-act="pickPlayer" data-id="' + esc(p.id) + '">' +
       '<div class="n">' + (p.number !== '' ? '#' + esc(p.number) : '–') + '</div>' +
       '<div class="nm">' + esc(p.name) + '</div>' +
@@ -1331,26 +1356,42 @@ function viewRoster() {
 function viewSettings() {
   const d = S.data, st = d.settings;
   const account = st.coachEmail || 'your Google account';
-  const check = (name, on, title, desc) => '<label class="check choice"><input type="checkbox" name="' + name + '"' + (on ? ' checked' : '') + '><span>' + title +
+  const check = (name, on, title, desc) => '<label class="check choice"><input form="settingsForm" type="checkbox" name="' + name + '"' + (on ? ' checked' : '') + '><span>' + title +
     (desc ? '<span class="muted small">' + desc + '</span>' : '') + '</span></label>';
-  return '<form data-form="settings">' +
+  const num = (name, title, val, min, max, desc) => '<label class="field">' + title + '<input form="settingsForm" name="' + name + '" type="number" inputmode="numeric" min="' + min + '" max="' + max + '" step="1" value="' + esc(val) + '"></label><p class="muted small" style="margin:-4px 0 8px">' + desc + ' (' + min + ' to ' + max + ')</p>';
+  return '<form id="settingsForm" data-form="settings"></form>' +
     '<div class="section-title">Your email updates</div><div class="card">' +
-    '<label class="field">Your email address for updates<input name="notifyEmail" type="email" value="' + esc(st.notifyEmail || '') + '" maxlength="120" placeholder="' + esc(st.coachEmail || 'name@example.com') + '" autocomplete="email"></label>' +
+    '<label class="field">Your email address for updates<input form="settingsForm" name="notifyEmail" type="email" value="' + esc(st.notifyEmail || '') + '" maxlength="120" placeholder="' + esc(st.coachEmail || 'name@example.com') + '" autocomplete="email"></label>' +
     '<p class="muted small" style="margin:4px 0 6px">Leave blank to use ' + esc(account) + '.</p>' +
     check('gameEmails', st.gameEmails !== false, 'Email me when a parent finishes a game', 'Final score, scoring by quarter, and every player\'s line.') +
     '</div>' +
     '<div class="section-title">Game-day reminders for parents</div><div class="card">' +
     check('gameDayEmails', !!st.gameDayEmails, 'Email the assigned parents on game day', 'Their link, PIN, opponent, and quick steps. Only parents with an email on the Access tab get it.') +
-    '<label class="field">Send around<select name="gameDayHour">' + [5, 6, 7, 8, 9, 10, 11].map(h => '<option value="' + h + '"' + (h === (st.gameDayHour || 7) ? ' selected' : '') + '>' + h + ' AM</option>').join('') + '</select></label>' +
+    '<label class="field">Send around<select form="settingsForm" name="gameDayHour">' + [5, 6, 7, 8, 9, 10, 11].map(h => '<option value="' + h + '"' + (h === (st.gameDayHour || 7) ? ' selected' : '') + '>' + h + ' AM</option>').join('') + '</select></label>' +
     '<button class="btn sm" type="button" data-act="sendGameDayNow" style="margin-top:10px">Send today\'s reminders now</button>' +
     '<p class="muted small" style="margin:8px 0 0">Text messages aren\'t available: Google can\'t send texts without a paid service.</p>' +
     '</div>' +
-    '<div class="section-title">Team</div><div class="card">' +
-    '<label class="field">Team name<input name="teamName" value="' + esc(st.teamName) + '" maxlength="60"></label>' +
-    '<label class="field">Season<input name="season" value="' + esc(st.season) + '" maxlength="20"></label>' +
-    '<p class="muted small">To change your coach PIN, edit <b>Coach PIN</b> on the Settings tab of the spreadsheet.</p>' +
+    '<div class="section-title">Coach PIN</div><div class="card"><form data-form="coachPin" autocomplete="off">' +
+    '<label class="field">Current PIN<input name="current" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></label>' +
+    '<label class="field">New PIN <span class="muted small">(4 to 8 digits, can\'t start with 0)</span><input name="next" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></label>' +
+    '<label class="field">Confirm new PIN<input name="confirm" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></label>' +
+    '<div class="err" data-pin-err></div><button class="btn" type="submit">Change PIN</button></form></div>' +
+    '<div class="section-title">Game rules</div><div class="card">' +
+    num('foulOut', 'Fouls to foul out', st.foulOut, 4, 6, 'A player is fouled out at this many. The warning comes one foul before.') +
+    num('bonusFouls', 'Team fouls for the bonus', st.bonusFouls, 3, 10, 'Per quarter. At this many, the other team is in the bonus.') +
+    num('timeouts', 'Timeouts per game', st.timeouts, 0, 10, 'Shown as "Timeouts left" while tracking. 0 shows a plain count.') +
     '</div>' +
-    '<div class="err"></div><button class="btn primary big" type="submit" style="margin-top:12px">Save settings</button></form>';
+    '<div class="section-title">Team</div><div class="card">' +
+    '<label class="field">Team name<input form="settingsForm" name="teamName" value="' + esc(st.teamName) + '" maxlength="60"></label>' +
+    '<label class="field">Season<input form="settingsForm" name="season" value="' + esc(st.season) + '" maxlength="20"></label>' +
+    '<div class="step-label">Team color</div><div class="swatches">' + TEAM_COLORS.map(c =>
+      '<label class="swatch" title="' + c[1] + '"><input form="settingsForm" type="radio" name="color" value="' + c[0] + '"' + (c[0] === (st.color || TEAM_COLORS[0][0]) ? ' checked' : '') + ' aria-label="' + c[1] + '"><span style="background:' + c[0] + '"></span></label>').join('') + '</div>' +
+    '</div>' +
+    '<div class="section-title">App link</div><div class="card">' +
+    (d.appUrl ? '<div class="copybox"><input readonly value="' + esc(d.appUrl) + '" id="appUrl2"><button class="btn sm" type="button" data-act="copyUrl" data-input="appUrl2">Copy</button></div>' : '<p class="muted small">The link appears once the app is published.</p>') +
+    '<p class="muted small" style="margin:8px 0 0">Parents\' PINs are on the Access tab: tap Edit on a person to change theirs.</p>' +
+    '</div>' +
+    '<div class="err" data-settings-err></div><button class="btn primary big" type="submit" form="settingsForm" style="margin-top:12px">Save settings</button>';
 }
 
 // Stat groups the coach can allow per person (same keys as the server's STAT_GROUPS).
@@ -1462,8 +1503,9 @@ function parentForm(p) {
     '<label class="field">Name<input name="name" maxlength="60" required value="' + esc(p.name) + '" ' + (p.id ? '' : 'autofocus') + ' placeholder="e.g. Jamie (Ava\'s mom)"></label>' +
     '<label class="field">Email <span class="muted small">(optional, to email their invite)</span><input type="email" name="email" maxlength="100" value="' + esc(p.email || '') + '" placeholder="name@example.com" autocomplete="off"></label>' +
     '<label class="field">Cell phone <span class="muted small">(optional, to text their invite)</span><input type="tel" name="phone" maxlength="20" value="' + esc(p.phone || '') + '" placeholder="(555) 123-4567" autocomplete="off"></label>' +
-    (p.id ? '<p>PIN <span class="pin">' + esc(p.pin) + '</span></p><label class="check"><input type="checkbox" name="newPin"> Give them a new PIN (old one stops working)</label>' +
-      '<label class="check"><input type="checkbox" name="active" ' + (p.active ? 'checked' : '') + '> Can sign in</label>' : '<p class="muted small">A 4-digit PIN is created automatically.</p>') +
+    '<label class="field">PIN (4–8 digits)' + (p.id ? '' : ' <span class="muted small">(optional, blank makes one for you)</span>') + '<input name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" value="' + esc(p.pin || '') + '"></label>' +
+    (p.id ? '<label class="check"><input type="checkbox" name="newPin"> Give them a new PIN instead (old one stops working)</label>' +
+      '<label class="check"><input type="checkbox" name="active" ' + (p.active ? 'checked' : '') + '> Can sign in</label>' : '') +
 
     '<div class="access-step"><div class="step-title"><span class="step-num">1</span> During games: what do they track?</div>' +
     '<div class="step-label">Which games</div>' +
@@ -1808,7 +1850,7 @@ async function refreshGameFromServer(quiet) {
     // Only redraw when something changed, so the screen doesn't jump while someone is tapping.
     const before = JSON.stringify([t.box, t.periods, t.game.status, t.flow]);
     if (quiet && before === JSON.stringify([r.box || {}, t.mode ? t.periods : (r.periods || {}), r.game.status, r.flow])) return;
-    t.box = r.box || {}; t.game = r.game; t.players = r.players; t.canTrack = r.canTrack; t.canFix = r.canFix; t.parentBooks = r.parentBooks || [];
+    t.box = r.box || {}; t.game = r.game; t.players = r.players; if (r.rules) t.rules = r.rules; t.canTrack = r.canTrack; t.canFix = r.canFix; t.parentBooks = r.parentBooks || [];
     if (!t.mode) { t.periods = r.periods || {}; t.periodBoxes = r.periodBoxes || {}; if ((r.currentPeriod || 0) > t.period) t.period = r.currentPeriod; }
     saveGameLocal();
     if (!modalState) render();
@@ -1829,6 +1871,7 @@ async function loadHome() {
     S.teamName = S.data.me.teamName;
   }
   store.set('gcs_team', S.teamName);
+  applyColor((S.data.settings || {}).color);
 }
 
 async function boot() {
@@ -1878,6 +1921,8 @@ async function coachSave(action, data) {
     S.me = S.data.me;
     S.teamName = S.data.settings.teamName;
     store.set('gcs_team', S.teamName);
+    applyColor(S.data.settings.color);
+    if (S.t && S.data.settings) S.t.rules = { foulOut: S.data.settings.foulOut, bonusFouls: S.data.settings.bonusFouls, timeouts: S.data.settings.timeouts };
     closeModal();
     render();
     return true;
@@ -2175,8 +2220,8 @@ const ACTS = {
     if (!confirm('Remove this parent? Their PIN stops working and their games become unassigned.')) return;
     coachSave('deleteParent', { id: el.dataset.id });
   },
-  copyUrl() {
-    const input = $('#appUrl');
+  copyUrl(el) {
+    const input = $('#' + (el && el.dataset && el.dataset.input || 'appUrl'));
     input.select();
     const done = () => toast('Link copied');
     if (navigator.clipboard) navigator.clipboard.writeText(input.value).then(done, () => { document.execCommand('copy'); done(); });
@@ -2238,7 +2283,7 @@ const FORMS = {
     };
     const isNew = !f.elements.id.value;
     const before = new Set(S.data.parents.map(p => p.id));
-    return coachSave('saveParent', { players: players, id: f.elements.id.value, name: f.elements.name.value, email: f.elements.email.value, phone: f.elements.phone.value, active: f.elements.active ? f.elements.active.checked : true, newPin: !!(f.elements.newPin && f.elements.newPin.checked), perms: perms, trackGroups: checked('tg'), viewGroups: checked('vg') })
+    return coachSave('saveParent', { players: players, id: f.elements.id.value, name: f.elements.name.value, email: f.elements.email.value, phone: f.elements.phone.value, active: f.elements.active ? f.elements.active.checked : true, newPin: !!(f.elements.newPin && f.elements.newPin.checked), pin: f.elements.pin.value.trim(), perms: perms, trackGroups: checked('tg'), viewGroups: checked('vg') })
       .then(ok => {
         // New person with contact info: go straight to sending their invite.
         const added = ok && isNew && S.data.parents.find(p => !before.has(p.id));
@@ -2247,7 +2292,29 @@ const FORMS = {
       });
   },
   settings(f) {
-    return coachSave('saveSettings', { teamName: f.elements.teamName.value, season: f.elements.season.value, gameEmails: f.elements.gameEmails.checked, gameDayEmails: f.elements.gameDayEmails.checked, gameDayHour: Number(f.elements.gameDayHour.value), notifyEmail: f.elements.notifyEmail.value.trim() }).then(ok => ok && toast('Saved'));
+    const colorEl = f.elements.color;
+    const color = colorEl ? (Array.from(colorEl).find(r => r.checked) || {}).value : '';
+    return coachSave('saveSettings', { foulOut: f.elements.foulOut.value, bonusFouls: f.elements.bonusFouls.value, timeouts: f.elements.timeouts.value, color: color || '', teamName: f.elements.teamName.value, season: f.elements.season.value, gameEmails: f.elements.gameEmails.checked, gameDayEmails: f.elements.gameDayEmails.checked, gameDayHour: Number(f.elements.gameDayHour.value), notifyEmail: f.elements.notifyEmail.value.trim() }).then(ok => ok && toast('Saved'));
+  },
+  async coachPin(f) {
+    const err = $('[data-pin-err]');
+    const say = m => { if (err) err.textContent = m; };
+    say('');
+    const cur = f.elements.current.value.trim(), next = f.elements.next.value.trim(), again = f.elements.confirm.value.trim();
+    if (!cur || !next) return say('Enter your current PIN and a new PIN.');
+    if (!/^[1-9]\d{3,7}$/.test(next)) return say("PINs are 4 to 8 digits and can't start with 0.");
+    if (next !== again) return say("The new PINs don't match.");
+    try {
+      await call('changeCoachPin', { current: cur, next: next });
+      // Stay signed in with the new PIN.
+      S.pin = next;
+      store.set('gcs_pin', next);
+      f.reset();
+      toast('Coach PIN changed');
+    } catch (e) {
+      if (e.auth) return logout(e.message);
+      say(e.message);
+    }
   },
   async oppRoster(f) {
     const t = S.t;
@@ -2295,7 +2362,7 @@ document.addEventListener('submit', async ev => {
   const f = ev.target.closest('form[data-form]');
   if (!f) return;
   ev.preventDefault();
-  const btn = f.querySelector('button[type=submit]');
+  const btn = f.querySelector('button[type=submit]') || (f.id && document.querySelector('button[type=submit][form="' + f.id + '"]'));
   if (btn) { if (btn.disabled) return; btn.disabled = true; }
   try { await FORMS[f.dataset.form](f); } finally { if (btn && document.body.contains(btn)) btn.disabled = false; }
 });

@@ -826,3 +826,94 @@ test('a mail failure does not throw or break the run', () => {
   assert.equal(coach('sendGameDayNow').sent, 0);
   assert.equal(coach('sendGameDayNow').sent, 0); // not marked reminded, so it would retry
 });
+
+// ---------------------------------------------------------------------------
+// In-app settings: coach PIN, parent PINs, game rules, team colour
+// ---------------------------------------------------------------------------
+
+test('changeCoachPin validates, saves, and swaps the working PIN', () => {
+  const t = setup();
+  const { pat } = seed(t);
+  assert.throws(() => t.coach('changeCoachPin', { current: '123', next: '987654' }), /current PIN isn't right/);
+  for (const bad of ['123', '123456789', '012345', 'abcd12', '12 4', '']) {
+    assert.throws(() => t.coach('changeCoachPin', { current: t.coachPin, next: bad }), /4 to 8 digits and can't start with 0/, 'bad: ' + bad);
+  }
+  assert.throws(() => t.coach('changeCoachPin', { current: t.coachPin, next: pat.pin }), /already used by someone else/);
+  assert.throws(() => t.coach('changeCoachPin', { current: t.coachPin, next: t.coachPin }), /already used by someone else/);
+  // A wrong current PIN does not count as a failed login.
+  assert.equal(t.coach('me').role, 'coach');
+  assert.throws(() => t.call(pat.pin, 'changeCoachPin', { current: t.coachPin, next: '7654321' }), /Only the coach/);
+
+  assert.deepEqual(t.coach('changeCoachPin', { current: t.coachPin, next: '7654321' }), { ok: true });
+  assert.equal(t.call('7654321', 'me').role, 'coach');
+  assert.throws(() => t.call(t.coachPin, 'me'), /AUTH/);
+  assert.equal(t.gas.sheets.Settings.data.find(r => r[0] === 'Coach PIN')[1], '7654321');
+});
+
+test('saveParent can set a custom PIN, with the same rules', () => {
+  const t = setup();
+  const { pat, sam } = seed(t);
+  const edit = (p, extra) => t.coach('saveParent', { id: p.id, name: p.name, ...extra });
+  // Mark Pat invited, then change the PIN: the invite is cleared.
+  t.gas.context.writeRow_('Parents', t.gas.context.findRow_('Parents', pat.id)._row, { ...t.gas.context.findRow_('Parents', pat.id), Invited: '2026-01-01T00:00:00Z' });
+  let all = edit(pat, { pin: '482913' });
+  const p2 = all.parents.find(x => x.id === pat.id);
+  assert.equal(p2.pin, '482913');
+  assert.equal(t.call('482913', 'me').id, pat.id);
+  assert.throws(() => t.call(pat.pin, 'me'), /AUTH/);
+  assert.equal(t.gas.context.findRow_('Parents', pat.id).Invited, '');
+  // Same PIN again is fine and keeps Invited.
+  t.gas.context.writeRow_('Parents', t.gas.context.findRow_('Parents', pat.id)._row, { ...t.gas.context.findRow_('Parents', pat.id), Invited: 'x' });
+  assert.equal(edit(pat, { pin: '482913' }).parents.find(x => x.id === pat.id).pin, '482913');
+  assert.equal(t.gas.context.findRow_('Parents', pat.id).Invited, 'x');
+  // Validation.
+  assert.throws(() => edit(pat, { pin: t.coachPin }), /already used/);
+  assert.throws(() => edit(pat, { pin: sam.pin }), /already used/);
+  for (const bad of ['123', '123456789', '0123', 'ab12']) assert.throws(() => edit(pat, { pin: bad }), /4 to 8 digits/, bad);
+  // newPin wins over pin.
+  const r = edit(pat, { pin: '555666', newPin: true }).parents.find(x => x.id === pat.id);
+  assert.notEqual(r.pin, '555666');
+  // New person: custom or blank (auto).
+  all = t.coach('saveParent', { name: 'New One', pin: '9090' });
+  assert.equal(all.parents.find(x => x.name === 'New One').pin, '9090');
+  assert.throws(() => t.coach('saveParent', { name: 'Dup', pin: '9090' }), /already used/);
+  all = t.coach('saveParent', { name: 'Auto', pin: '' });
+  assert.match(all.parents.find(x => x.name === 'Auto').pin, /^[1-9]\d{3}$/);
+});
+
+test('game rules: defaults, validation, and who receives them', () => {
+  const t = setup();
+  const { pat, g1 } = seed(t);
+  const def = { foulOut: 5, bonusFouls: 5, timeouts: 5 };
+  const pick = s => ({ foulOut: s.foulOut, bonusFouls: s.bonusFouls, timeouts: s.timeouts });
+  assert.deepEqual(pick(t.coach('all').settings), def);
+  for (const bad of [{ foulOut: 3 }, { foulOut: 7 }, { bonusFouls: 2 }, { bonusFouls: 11 }, { timeouts: -1 }, { timeouts: 11 }, { timeouts: 2.5 }, { foulOut: 'x' }]) {
+    assert.throws(() => t.coach('saveSettings', bad), /must be a whole number from/, JSON.stringify(bad));
+  }
+  assert.deepEqual(pick(t.coach('all').settings), def, 'nothing saved by refused requests');
+  const saved = t.coach('saveSettings', { foulOut: 4, bonusFouls: '7', timeouts: 0 });
+  assert.deepEqual(pick(saved.settings), { foulOut: 4, bonusFouls: 7, timeouts: 0 });
+  const rules = { foulOut: 4, bonusFouls: 7, timeouts: 0 };
+  // A parent who may see stats gets them from `all`; a tracker gets them from scorerHome and game.
+  const viewer = t.coach('saveParent', { id: pat.id, name: pat.name, perms: { viewStats: true } });
+  assert.deepEqual(pick(t.call(pat.pin, 'all').settings), rules);
+  assert.equal(t.call(pat.pin, 'all').settings.coachEmail, undefined, 'email settings stay private');
+  t.coach('saveParent', { id: pat.id, name: pat.name, perms: { viewStats: false } });
+  assert.deepEqual(pick(t.call(pat.pin, 'scorerHome').settings), rules);
+  assert.deepEqual(t.call(pat.pin, 'game', { gameId: g1.id }).rules, rules);
+  assert.deepEqual(t.coach('game', { gameId: g1.id }).rules, rules);
+  assert.ok(viewer);
+});
+
+test('team colour accepts only presets and is sent to everyone', () => {
+  const t = setup();
+  const { pat, g1 } = seed(t);
+  assert.equal(t.coach('all').settings.color, '#1c3d8c');
+  for (const bad of ['#ff0000', 'red', '#1c3d8c; x', '<b>']) assert.throws(() => t.coach('saveSettings', { color: bad }), /team colors/, bad);
+  assert.equal(t.coach('saveSettings', { color: '#7A1D2E' }).settings.color, '#7a1d2e');
+  assert.equal(t.call(pat.pin, 'scorerHome').settings.color, '#7a1d2e');
+  t.coach('saveParent', { id: pat.id, name: pat.name, perms: { viewStats: true } });
+  assert.equal(t.call(pat.pin, 'all').settings.color, '#7a1d2e');
+  for (const c of ['#1c3d8c', '#7a1d2e', '#1f5d3a', '#4b2a84', '#1d2433', '#b0242c']) assert.equal(t.coach('saveSettings', { color: c }).settings.color, c);
+  assert.ok(g1);
+});
