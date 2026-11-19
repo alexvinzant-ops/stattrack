@@ -31,3 +31,13 @@ test('the Apps Script page itself is untouched by the PWA tags', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Index.html'), 'utf8');
   assert.ok(!/rel="manifest"|apple-mobile-web-app|theme-color/.test(src));
 });
+
+test('pwa.config.json teamLink is built into the page, and checked', () => {
+  const link = 'https://script.google.com/a/macros/school.org/s/AKfy_1-x/exec';
+  assert.match(buildIndex({ teamLink: link }), new RegExp('<meta name="team-link" content="' + link.replace(/[.\/]/g, '\\$&') + '">'));
+  assert.ok(!/<meta name="team-link"/.test(buildIndex({ teamLink: '' })));
+  assert.throws(() => buildIndex({ teamLink: 'https://script.google.com/macros/s/x/dev' }), /ends in \/exec/);
+  assert.throws(() => buildIndex({ teamLink: 'https://evil.example/"><script>' }), /ends in \/exec/);
+  // The manifest is added by the page's script, so it can be left out for an iPhone install link.
+  assert.ok(!/rel="manifest"/.test(buildIndex({ teamLink: '' })));
+});
