@@ -73,14 +73,20 @@ The normal link needs internet to open. For gyms with no Wi-Fi, the same app is 
 
 After a minute the app is at **`https://<owner>.github.io/<repo>/`** (your GitHub name and this repository's name).
 
-### Connecting a device
-On each phone or tablet, **while on Wi-Fi**, open
+### Connecting a device (one tap)
+Open **⚙ Settings → Offline app** in the app. Your **install link** is there: the offline app's address with your team's app link built in.
 
-`https://<owner>.github.io/<repo>/?api=<your app link>`
+- **On the phone or tablet you're using right now:** tap **Open on this device**.
+- **On another device** (like a Wi-Fi-only iPad): tap **Email it to me** or **Text it**, then open the link on that device.
+- **Parents** get the same link in their invite and in the game-day email. Nothing to paste.
 
-where *your app link* is your Apps Script web app link (the one ending in `/exec`, shown under **⚙ Settings → App link**). Put it right after `?api=`. If it doesn't open, replace the characters in the app link with their URL-encoded forms (`:` → `%3A`, `/` → `%2F`). The link is remembered and disappears from the address bar. If you open the plain address instead, the app asks you to **paste your team's app link** once.
+Then, while on Wi-Fi:
+- **iPhone/iPad:** the link opens in Safari and shows *Almost done*. Tap **Share → Add to Home Screen → Add**, then open **Stats** from the Home Screen and enter your PIN.
+- **Android:** sign in, then **⋮ → Install app**.
 
-Then sign in with the PIN as usual and **Add to Home Screen** (iPhone/iPad: Share → Add to Home Screen; Android: ⋮ → Install app). Each person's PIN and device only need this once.
+It's only needed once per device. If a device ever asks you to *paste your team's app link*, open the install link on it again (or paste the link that ends in `/exec`, from **⚙ Settings → App link**).
+
+If you host the offline app somewhere other than this repository's GitHub Pages, change **⚙ Settings → Offline app → Where the offline app is hosted**.
 
 ### Before leaving Wi-Fi
 Open the app once. Every time it loads online it downloads the games you can track (today's, plus the next 3). Games that are saved on the device show **✓ Ready offline** on the home screen and the Games tab. If today's game has it, you can go.

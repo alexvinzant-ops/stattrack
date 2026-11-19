@@ -17,6 +17,9 @@
  */
 
 const TEAM_DEFAULT = 'My Team';
+// Where the installable offline app is hosted (GitHub Pages, from this repository's docs/ folder).
+// It holds no team data, so every team can use the same one. The coach can change it in ⚙ Settings.
+const OFFLINE_APP_DEFAULT = 'https://alexvinzant-ops.github.io/stattrack/';
 const TEAM_COLORS = ['#1c3d8c', '#7a1d2e', '#1f5d3a', '#4b2a84', '#1d2433', '#b0242c'];
 // Game rules: [setting name, default, min, max]
 const RULES = { foulOut: ['Foul Out', 5, 4, 6], bonusFouls: ['Bonus Fouls', 5, 3, 10], timeouts: ['Timeouts Per Game', 5, 0, 10] };
@@ -142,6 +145,7 @@ const ACTIONS = {
   changeCoachPin: { need: 'coach', run: changeCoachPin_ },
   writeReport: { need: 'coach', run: writeReport_ },
   sendGameDayNow: { need: 'coach', run: () => sendGameDayReminders_({ force: true }) },
+  emailInstallLink: { need: 'coach', run: emailInstallLink_ },
 };
 
 // ---------------------------------------------------------------------------
@@ -490,7 +494,7 @@ function all_(who) {
   return {
     me: who ? me_(who) : { role: 'coach', name: 'Coach', teamName: s.teamName, perms: ALL_PERMS },
     settings: isCoach
-      ? Object.assign(publicSettings_(), { gameEmails: s.gameEmails, notifyEmail: s.notifyEmail, gameDayEmails: s.gameDayEmails, gameDayHour: s.gameDayHour, coachEmail: coachEmail_() })
+      ? Object.assign(publicSettings_(), { gameEmails: s.gameEmails, notifyEmail: s.notifyEmail, gameDayEmails: s.gameDayEmails, gameDayHour: s.gameDayHour, coachEmail: coachEmail_(), offlineApp: s.offlineApp })
       : publicSettings_(),
     players: listPlayers_(),
     // PINs and permissions are only ever sent to the coach.
@@ -498,6 +502,7 @@ function all_(who) {
     games: listGames_(),
     boxes: seesAll_(who) ? boxes_() : filterAllBoxes_(boxes_(), who.perms.viewGroups),
     appUrl: isCoach ? appUrl : '',
+    installUrl: isCoach ? installLink_(s, appUrl) : '',
     sheetUrl: isCoach ? sheetUrl : '',
   };
 }
@@ -701,7 +706,14 @@ function saveSettings_(who, d) {
   });
   const color = d.color === undefined || d.color === null || d.color === '' ? '' : String(d.color).trim().toLowerCase();
   if (color && TEAM_COLORS.indexOf(color) < 0) throw new Error('Pick one of the team colors.');
+  let offlineApp = null;
+  if (d.offlineApp !== undefined && d.offlineApp !== null) {
+    offlineApp = String(d.offlineApp).trim();
+    if (offlineApp && !/\/$/.test(offlineApp)) offlineApp += '/';
+    if (offlineApp && !validOfflineBase_(offlineApp)) throw new Error('The offline app address should look like https://name.github.io/repo/');
+  }
   withLock_(() => {
+    if (offlineApp !== null) setSetting_('Offline App Address', offlineApp === OFFLINE_APP_DEFAULT ? '' : offlineApp);
     Object.keys(rules).forEach(k => setSetting_(RULES[k][0], rules[k]));
     if (color) setSetting_('Team Color', color);
     const teamName = clean_(d.teamName, 60);
@@ -765,8 +777,42 @@ function getSettings_() {
     foulOut: rule_(map['Foul Out'], RULES.foulOut),
     bonusFouls: rule_(map['Bonus Fouls'], RULES.bonusFouls),
     timeouts: rule_(map['Timeouts Per Game'], RULES.timeouts),
+    offlineApp: validOfflineBase_(map['Offline App Address']) ? map['Offline App Address'] : OFFLINE_APP_DEFAULT,
     color: TEAM_COLORS.indexOf(String(map['Team Color'] || '').trim().toLowerCase()) >= 0 ? String(map['Team Color']).trim().toLowerCase() : TEAM_COLORS[0],
   };
+}
+
+function validOfflineBase_(u) {
+  u = str_(u);
+  return u.length <= 200 && (/^https:\/\/[^\s?#]+\/$/.test(u) || /^http:\/\/localhost(:\d+)?\/[^\s?#]*$/.test(u));
+}
+
+/**
+ * The one-tap install link: the offline app's address with this team's /exec link built in, so a
+ * phone that opens it is connected to the team without pasting anything. '' until the app is
+ * published (only /exec links work for everyone).
+ */
+function installLink_(s, appUrl) {
+  const url = appUrl === undefined ? savedAppUrl_() : appUrl;
+  if (!/\/exec$/.test(url || '')) return '';
+  return (s || getSettings_()).offlineApp + '?api=' + encodeURIComponent(url);
+}
+
+/** Emails the coach their own install link, so a Wi-Fi-only tablet can open it from Mail. */
+function emailInstallLink_(who) {
+  const s = getSettings_();
+  const link = installLink_(s);
+  if (!link) throw new Error('Publish the app first (Deploy → New deployment), then try again.');
+  const to = s.notifyEmail || coachEmail_();
+  if (!to) throw new Error('Add your email address above first.');
+  MailApp.sendEmail({
+    to: to, name: s.teamName,
+    subject: s.teamName + ' stats: install the offline app',
+    body: ['Open this on the phone or tablet you\'ll keep stats on (while on Wi-Fi):', '', link, '',
+      'iPhone/iPad: after it opens in Safari, tap Share → Add to Home Screen → Add, then open Stats from your Home Screen and enter your PIN.',
+      'Android: tap ⋮ → Install app.'].join('\n'),
+  });
+  return { ok: true, to: to };
 }
 
 function rule_(v, r) {
@@ -1206,6 +1252,8 @@ function gameDayEmailText_(game, parent, allParents) {
   lines.push('');
   if (url) lines.push('Link: ' + url);
   lines.push('Your PIN: ' + parent.pin);
+  const install = installLink_(s);
+  if (install) lines.push('No Wi-Fi at the gym? Install the offline app (open on your phone while on Wi-Fi, then Share → Add to Home Screen): ' + install);
   lines.push('',
     '1. Open the link and enter your PIN.',
     "2. Tap Start tracking on Today's game. Check the date under the score.",

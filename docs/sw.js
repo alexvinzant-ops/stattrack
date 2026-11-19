@@ -1,7 +1,7 @@
 // Service worker for the installable offline app. Generated into docs/sw.js by `npm run build:pwa`.
 // The cache name changes whenever the app files change, so a new version replaces the old one.
 'use strict';
-const CACHE = 'team-stats-56b4d3c1dfb5';
+const CACHE = 'team-stats-0b27e4eaec49';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 
 self.addEventListener('install', event => {
