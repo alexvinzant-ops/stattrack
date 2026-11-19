@@ -917,3 +917,28 @@ test('team colour accepts only presets and is sent to everyone', () => {
   for (const c of ['#1c3d8c', '#7a1d2e', '#1f5d3a', '#4b2a84', '#1d2433', '#b0242c']) assert.equal(t.coach('saveSettings', { color: c }).settings.color, c);
   assert.ok(g1);
 });
+
+test('doPost: JSON endpoint wraps api() for the offline app', () => {
+  const t = setup();
+  const post = body => {
+    const out = t.gas.context.doPost({ postData: { contents: typeof body === 'string' ? body : JSON.stringify(body) } });
+    assert.equal(out.mime, 'JSON');
+    return JSON.parse(out.getContent());
+  };
+  const ok = post({ action: 'me', data: {}, pin: t.coachPin });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.result.role, 'coach');
+  const bad = post({ action: 'me', pin: '999999' });
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /^AUTH:/);
+  assert.equal(post({ action: 'me' }).ok, false, 'missing pin');
+  for (const body of ['not json', '', '[1]', 'null', '{"action":']) {
+    let r;
+    assert.doesNotThrow(() => { r = post(body); }, body);
+    assert.equal(r.ok, false, body);
+    assert.equal(typeof r.error, 'string');
+  }
+  assert.doesNotThrow(() => t.gas.context.doPost(undefined));
+  // Only actions in the table are reachable; names of other functions are not.
+  for (const action of ['setup', 'doGet', 'constructor', '__proto__']) assert.equal(post({ action, pin: t.coachPin }).ok, false, action);
+});

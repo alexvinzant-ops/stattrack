@@ -172,6 +172,13 @@ function createGas(opts = {}) {
         return o;
       },
     },
+    ContentService: {
+      MimeType: { JSON: 'JSON', TEXT: 'TEXT' },
+      createTextOutput: text => {
+        const o = { text: String(text), mime: 'TEXT', setMimeType: m => { o.mime = m; return o; }, getContent: () => o.text, getMimeType: () => o.mime };
+        return o;
+      },
+    },
     Logger: { log: (...a) => console.log(...a) },
   };
   vm.createContext(context);
