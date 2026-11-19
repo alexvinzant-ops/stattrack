@@ -320,10 +320,15 @@ const store = {
 // offline app (docs/), a plain fetch to the team's /exec link. Everything else is shared.
 const IS_GAS = !!(window.google && google.script && google.script.run);
 const PWA = !IS_GAS;
-function validApiUrl(u) {
-  u = String(u || '').trim();
-  if (/^https:\/\/script\.google\.com\/macros\/s\/[^\s?#]+\/exec$/.test(u)) return true;
-  return location.hostname === 'localhost' && /^http:\/\/localhost(:\d+)?\/exec$/.test(u); // local testing only
+// The team's app link, tidied up. Google gives school/work accounts a longer form
+// (script.google.com/a/macros/<school>/s/<id>/exec); both forms reach the same app, so this keeps
+// the short one. Also finds the link inside a pasted message. '' if there isn't one.
+function apiUrlFrom(u) {
+  u = String(u || '');
+  const m = /https:\/\/script\.google\.com\/(?:a\/macros\/[^\/\s?#]+|macros)\/s\/([A-Za-z0-9_-]+)\/exec(?![A-Za-z0-9_-])/.exec(u);
+  if (m) return 'https://script.google.com/macros/s/' + m[1] + '/exec';
+  if (location.hostname === 'localhost') { const l = /http:\/\/localhost(?::\d+)?\/exec(?![\w\/])/.exec(u); if (l) return l[0]; } // local testing only
+  return '';
 }
 let API_URL = PWA ? store.get('gcs_api', '') : '';
 // iPhone/iPad: a Home Screen app keeps its own storage, apart from Safari, and starts at the address
@@ -337,10 +342,10 @@ if (PWA) {
   try {
     const q = new URLSearchParams(location.search), a = q.get('api');
     if (a != null) {
-      const ok = validApiUrl(a);
+      const url = apiUrlFrom(a), ok = !!url;
       if (ok) {
-        if (a.trim() !== API_URL) store.del('gcs_home');
-        API_URL = a.trim(); store.set('gcs_api', API_URL);
+        if (url !== API_URL) store.del('gcs_home');
+        API_URL = url; store.set('gcs_api', API_URL);
       }
       if (ok && IOS && !STANDALONE) {
         INSTALL_HINT = true;
@@ -351,7 +356,7 @@ if (PWA) {
       }
     }
   } catch (e) { /* ignore */ }
-  if (!validApiUrl(API_URL)) API_URL = '';
+  API_URL = apiUrlFrom(API_URL);
   if ('serviceWorker' in navigator) window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
   // Ask the browser not to clear what is saved on this device (plays waiting to upload, offline games).
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
@@ -730,8 +735,8 @@ function viewSetup() {
     '<h1>Team Stats</h1><div class="muted">Connect this device to your team</div>' +
     '<form data-form="api" style="margin-top:18px;text-align:left" autocomplete="off">' +
     '<p class="muted small">Easiest: open the install link from your coach\'s invite on this device. Or paste the app link here.</p>' +
-    '<label class="field">Paste your team\'s app link (from the coach\'s ⚙ Settings → App link)' +
-    '<input name="url" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(S.apiDraft) + '"></label>' +
+    '<label class="field">Paste your team\'s app link, or the whole invite message' +
+    '<input name="url" type="text" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(S.apiDraft) + '"></label>' +
     '<div class="err" data-api-err>' + esc(S.apiErr) + '</div>' +
     '<button class="btn primary big" type="submit">Connect</button></form>' +
     '</div>';
@@ -2539,10 +2544,13 @@ const ACTS = {
 
 const FORMS = {
   api(f) {
-    const url = f.elements.url.value.trim();
-    S.apiDraft = url;
-    if (!validApiUrl(url)) {
-      S.apiErr = 'That doesn\'t look like the team link. It starts with https://script.google.com/macros/s/ and ends with /exec.';
+    const raw = f.elements.url.value.trim();
+    const url = apiUrlFrom(raw);
+    S.apiDraft = raw;
+    if (!url) {
+      S.apiErr = /\/dev\b/.test(raw) ? 'That is the test link (it ends in /dev), which only the coach can open. Use the link that ends in /exec.'
+        : /docs\.google\.com/.test(raw) ? 'That is the Google Sheet. Use the app link from ⚙ Settings → App link (it ends in /exec).'
+        : 'That doesn\'t look like the team link. It starts with https://script.google.com/ and ends with /exec. You can also paste the whole invite message.';
       render(); return;
     }
     S.apiErr = ''; S.apiDraft = '';

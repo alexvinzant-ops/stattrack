@@ -57,6 +57,22 @@ function isoDay(offset) { const d = new Date(); d.setDate(d.getDate() + offset);
     await page.click('form[data-form=api] button[type=submit]');
     await page.waitForSelector('[data-api-err]:text("doesn\'t look like the team link")');
 
+    // ---- The link check: school accounts' longer form, a pasted message, and wrong links.
+    const parsed = await page.evaluate(() => [
+      apiUrlFrom('https://script.google.com/a/macros/school.org/s/AKfy_cb-12/exec'),
+      apiUrlFrom('https://script.google.com/macros/s/AKfy_cb-12/exec'),
+      apiUrlFrom('Hi Pat!\n\nApp: https://script.google.com/a/macros/school.org/s/AKfy_cb-12/exec\nYour PIN: 4321'),
+      apiUrlFrom(' https://script.google.com/macros/s/AKfy_cb-12/exec?x=1 '),
+      apiUrlFrom('https://script.google.com/macros/s/AKfy_cb-12/dev'),
+      apiUrlFrom('https://docs.google.com/spreadsheets/d/abc/edit'),
+      apiUrlFrom('https://script.google.com/macros/s/AKfy_cb-12/execute'),
+    ]);
+    const short = 'https://script.google.com/macros/s/AKfy_cb-12/exec';
+    assert.deepEqual(parsed, [short, short, short, short, '', '', '']);
+    await page.fill('input[name=url]', 'https://script.google.com/macros/s/AKfy_cb-12/dev');
+    await page.click('form[data-form=api] button[type=submit]');
+    await page.waitForSelector('[data-api-err]:text("That is the test link")');
+
     // ---- Open with ?api=: the link is remembered and removed from the address bar.
     await page.goto(`${BASE}/pwa/?api=${encodeURIComponent(BASE + '/exec')}`);
     await page.waitForSelector('.keypad');
