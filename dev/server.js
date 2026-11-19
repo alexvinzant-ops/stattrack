@@ -32,7 +32,32 @@ window.google = { script: { get run() {
 } } };
 </script>`;
 
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.png': 'image/png' };
+const DOCS = path.join(__dirname, '..', 'docs');
+
 http.createServer((req, res) => {
+  // The installable offline app (docs/, built by `npm run build:pwa`), served at /pwa/ like GitHub Pages would.
+  if (req.method === 'GET' && (req.url === '/pwa' || req.url.startsWith('/pwa/') || req.url.startsWith('/pwa?'))) {
+    const u = new URL(req.url, 'http://localhost');
+    if (u.pathname === '/pwa') { res.writeHead(302, { Location: '/pwa/' + u.search }); res.end(); return; }
+    const rel = decodeURIComponent(u.pathname.slice('/pwa/'.length)) || 'index.html';
+    const file = path.join(DOCS, rel);
+    if (!file.startsWith(DOCS + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    res.end(fs.readFileSync(file));
+    return;
+  }
+  // Same as the web app's doPost(): the offline app sends {action, data, pin} as text.
+  if (req.method === 'POST' && req.url === '/exec') {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => setTimeout(() => {
+      const out = gas.context.doPost({ postData: { contents: body } });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+      res.end(out.getContent());
+    }, LATENCY));
+    return;
+  }
   if (req.method === 'POST' && req.url === '/api') {
     let body = '';
     req.on('data', c => { body += c; });

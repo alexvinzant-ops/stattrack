@@ -1,0 +1,2639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Team Stats</title>
+<style>
+:root {
+  --accent: #1c3d8c;
+  --accent-2: #2f5bd0;
+  --accent-ink: #ffffff;
+  --gold: #f2b705;
+  --bg: #eef1f6;
+  --card: #ffffff;
+  --ink: #141821;
+  --muted: #5f6b7d;
+  --line: #dde2ea;
+  --good: #0f7a55;
+  --good-bg: #e3f5ec;
+  --bad: #b8322a;
+  --bad-bg: #fbe9e7;
+  --warn: #b26a00;
+  --warn-bg: #fff3dc;
+  --sel: #ffd84d;
+  --radius: 14px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; touch-action: manipulation; }
+button:disabled { opacity: .45; cursor: default; }
+h1, h2, h3 { margin: 0; line-height: 1.2; }
+.wrap { max-width: 920px; margin: 0 auto; padding: 0 16px 96px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.row { display: flex; align-items: center; gap: 8px; }
+.row.wrap-row { flex-wrap: wrap; }
+.spacer { flex: 1; }
+.hidden { display: none !important; }
+
+/* Top bar */
+.top { background: var(--accent); color: var(--accent-ink); position: sticky; top: 0; z-index: 20; }
+.top .bar { max-width: 920px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 10px; min-height: 52px; }
+.top h1 { font-size: 18px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top .link { color: var(--accent-ink); opacity: .9; font-size: 14px; padding: 6px 8px; border-radius: 8px; }
+.top .link:active { background: rgba(255,255,255,.15); }
+.tabs { max-width: 920px; margin: 0 auto; display: flex; padding: 0 8px; overflow-x: auto; }
+.tabs button { color: var(--accent-ink); opacity: .75; padding: 10px 12px 12px; font-weight: 600; font-size: 15px; border-bottom: 3px solid transparent; white-space: nowrap; }
+.tabs button.on { opacity: 1; border-color: var(--gold); }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 14px; border-radius: 10px; font-weight: 600; background: var(--card); border: 1px solid var(--line); min-height: 42px; }
+a.btn { text-decoration: none; color: inherit; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.danger { color: var(--bad); }
+.btn.big { width: 100%; min-height: 52px; font-size: 17px; }
+.btn.sm { min-height: 34px; padding: 6px 10px; font-size: 14px; }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+
+/* Cards & lists */
+.card { background: var(--card); border-radius: var(--radius); border: 1px solid var(--line); padding: 14px; margin-top: 12px; }
+.card h2 { font-size: 17px; margin-bottom: 8px; }
+.section-title { margin: 20px 2px 0; font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+.list-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.list-item:first-child { border-top: 0; }
+.list-item .grow { flex: 1; min-width: 0; }
+.jersey { width: 40px; height: 40px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 800; flex: none; }
+.jersey.off { background: #a7b0bf; }
+.chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; background: #e6eaf1; color: var(--muted); }
+.chip.live { background: var(--bad-bg); color: var(--bad); }
+.chip.final { background: #e4e8ef; color: #334; }
+.chip.win { background: var(--good-bg); color: var(--good); }
+.chip.loss { background: var(--bad-bg); color: var(--bad); }
+.empty { text-align: center; padding: 28px 12px; color: var(--muted); }
+
+/* Stat tiles */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 12px; }
+.tile { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.tile .label { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; }
+.tile .value { font-size: 26px; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.tile .sub { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: 0 -14px; padding: 0 14px; -webkit-overflow-scrolling: touch; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 14px; }
+th, td { padding: 9px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 700; position: sticky; top: 0; background: var(--card); }
+th.sortable { cursor: pointer; user-select: none; }
+th.sorted { color: var(--accent); }
+td:first-child, th:first-child { text-align: left; position: sticky; left: 0; background: var(--card); z-index: 1; }
+tr.total td { font-weight: 800; border-top: 2px solid var(--ink); }
+tr.click { cursor: pointer; }
+tr.click:active td { background: #f3f6fb; }
+.pname { font-weight: 600; }
+.pnum { color: var(--muted); font-weight: 600; margin-right: 4px; }
+
+/* Segmented control */
+.seg { display: inline-flex; background: #e3e8f0; border-radius: 10px; padding: 3px; }
+.seg button { padding: 6px 12px; border-radius: 8px; font-weight: 600; font-size: 14px; color: var(--muted); }
+.seg button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+
+/* Forms */
+label.field { display: block; margin-top: 12px; font-weight: 600; font-size: 14px; }
+label.field input, label.field select, label.field textarea { display: block; width: 100%; margin-top: 4px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-weight: 400; font-size: 16px; }
+label.check { display: flex; align-items: center; gap: 10px; padding: 10px 0; font-weight: 600; }
+label.check input { width: 22px; height: 22px; flex: none; }
+.form-actions { display: flex; gap: 8px; margin-top: 18px; }
+.form-actions .btn { flex: 1; }
+.swatches { display: flex; gap: 12px; flex-wrap: wrap; margin: 6px 0 4px; }
+.swatch { position: relative; cursor: pointer; }
+.swatch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.swatch span { display: block; width: 40px; height: 40px; border-radius: 50%; border: 3px solid transparent; box-shadow: inset 0 0 0 2px rgba(255,255,255,.7); }
+.swatch input:checked + span { border-color: var(--ink); }
+.swatch input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
+.err { color: var(--bad); font-weight: 600; min-height: 1.4em; margin-top: 8px; }
+.note { background: var(--warn-bg); color: #6b4300; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-top: 10px; }
+
+/* Modal */
+.overlay { position: fixed; inset: 0; background: rgba(10,16,30,.5); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
+.modal { background: var(--card); width: 100%; max-width: 520px; max-height: 92vh; overflow: auto; border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); }
+@media (min-width: 600px) { .overlay { align-items: center; } .modal { border-radius: 18px; } }
+.modal h2 { font-size: 19px; }
+
+/* Login */
+.login { max-width: 360px; margin: 0 auto; padding: 32px 16px; text-align: center; }
+.login .logo { width: 72px; height: 72px; border-radius: 20px; background: var(--accent); margin: 0 auto 12px; display: grid; place-items: center; font-size: 40px; }
+.login h1 { font-size: 22px; }
+.dots { display: flex; justify-content: center; gap: 12px; margin: 24px 0 4px; min-height: 18px; }
+.dots span { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--accent); }
+.dots span.on { background: var(--accent); }
+.keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0 16px; }
+.keypad button { height: 62px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); font-size: 24px; font-weight: 600; }
+.keypad button:active { background: #e6ebf3; }
+
+/* Tracker */
+.score { background: var(--accent); color: var(--accent-ink); }
+.score .inner { max-width: 920px; margin: 0 auto; padding: 4px 16px 12px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
+.score .team { text-align: center; min-width: 0; }
+.score .team .nm { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.score .team .pts { font-size: 38px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.score .dash { font-size: 22px; opacity: .6; }
+.opp-pad { display: flex; gap: 6px; justify-content: center; margin-top: 4px; }
+.opp-pad button { background: rgba(255,255,255,.16); color: var(--accent-ink); border-radius: 8px; padding: 4px 9px; font-weight: 700; font-size: 14px; min-width: 38px; }
+.opp-pad button:active { background: rgba(255,255,255,.3); }
+.offline-banner { background: var(--warn-bg); color: var(--warn); border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 600; padding: 7px 14px; text-align: center; line-height: 1.3; }
+.ready { color: var(--good); font-size: 13px; font-weight: 700; margin-top: 4px; }
+.sync { font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+.sync::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: #39d98a; }
+.sync.pending::before { background: var(--gold); }
+.sync.offline::before, .sync.error::before { background: #ff6b5e; }
+
+.hint { text-align: center; font-weight: 600; color: var(--muted); padding: 10px 0 4px; min-height: 36px; }
+.hint b { color: var(--ink); }
+.players { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.pbtn { background: var(--card); border: 2px solid var(--line); border-radius: 12px; padding: 8px 6px; text-align: center; min-height: 72px; }
+.pbtn .n { font-size: 22px; font-weight: 800; line-height: 1.1; }
+.pbtn .nm { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pbtn .ln { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pbtn .ln .foul4 { color: var(--warn); font-weight: 800; }
+.pbtn .ln .foul5 { color: var(--bad); font-weight: 800; }
+.pbtn.sel { border-color: var(--accent); background: var(--sel); }
+.pad { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.sbtn { border-radius: 12px; min-height: 58px; font-weight: 800; font-size: 16px; background: var(--card); border: 2px solid var(--line); line-height: 1.1; }
+.sbtn small { display: block; font-size: 11px; font-weight: 700; opacity: .8; letter-spacing: .04em; }
+.pad .sbtn:last-child:nth-child(4n+1) { grid-column: span 4; }
+.sbtn.make { background: var(--good-bg); border-color: #9fd8bd; color: var(--good); }
+.sbtn.miss { background: var(--bad-bg); border-color: #efb4ad; color: var(--bad); }
+.sbtn.armed { outline: 3px solid var(--accent); outline-offset: 1px; background: var(--sel); color: var(--ink); }
+.sbtn:active { filter: brightness(.94); }
+.panel { margin-top: 12px; padding: 10px; border-radius: 14px; border: 1px solid var(--line); }
+.panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; min-height: 36px; }
+.panel-head h2 { margin: 0; font-size: 17px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-head label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.panel-head select { min-height: 44px; max-width: 150px; font-size: 15px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); padding: 0 6px; }
+.panel.opp { background: #e9eef6; border-color: #c9d4e6; }
+.panel.us .players { margin-top: 0; }
+.spad { display: grid; grid-template-columns: 1.25fr 1fr 1fr 1.25fr; grid-auto-rows: minmax(52px, auto); gap: 8px; margin-top: 12px; }
+.panel .spad { margin-top: 10px; }
+.spad button { border-radius: 12px; font-weight: 800; touch-action: manipulation; min-height: 44px; line-height: 1.1; padding: 4px; }
+.spad .big { min-height: 110px; color: #fff; border: 0; font-size: 15px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.spad .big b { font-size: 30px; line-height: 1; }
+.spad .g2m { grid-area: 1 / 1 / 3 / 2; } .spad .g2x { grid-area: 3 / 1 / 5 / 2; } .spad .g3m { grid-area: 1 / 4 / 3 / 5; } .spad .g3x { grid-area: 3 / 4 / 5 / 5; }
+.spad .big.g2m { background: #3a8a5c; } .spad .g3m { background: #24573d; }
+.spad .g2x { background: #c4404a; } .spad .g3x { background: #7a1d24; }
+.spad .sm { background: var(--card); border: 2px solid var(--line); font-size: 15px; color: var(--ink); grid-column: span 1; }
+.spad .sm.ft { background: #fdebd9; border-color: #f0c9a0; color: #b85c1e; }
+.panel.opp .spad .sm.ft { background: #b85c1e; border-color: #b85c1e; color: #fff; }
+.spad .sm.foul { grid-column: 1 / -1; }
+.spad .armed { outline: 3px solid var(--accent); outline-offset: 1px; }
+.spad button:active { filter: brightness(.92); }
+.plays .list-item { padding: 9px 0; }
+.side-seg { width: 100%; display: flex; }
+.personal-bar { grid-template-columns: 1fr auto !important; text-align: left; }
+.personal-bar .nm { font-size: 15px !important; text-transform: none !important; letter-spacing: 0 !important; font-weight: 700; opacity: 1 !important; }
+table.compare td.diff { background: var(--warn-bg); color: #6b4300; font-weight: 800; }
+table.compare tr.book-row td { border-bottom-width: 2px; }
+.help-steps { padding-left: 22px; margin: 12px 0 0; }
+.help-steps li { margin-bottom: 12px; }
+.help-steps li span { display: block; color: var(--muted); font-size: 14px; }
+.period-bar { background: var(--accent); color: var(--accent-ink); position: relative; }
+.period-bar .inner { max-width: 920px; margin: 0 auto; padding: 0 16px 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.period-seg { background: rgba(255,255,255,.16); }
+.period-seg button { color: var(--accent-ink); min-width: 46px; padding: 7px 10px; font-size: 15px; }
+.period-seg button.on { background: var(--gold); color: #1d2433; }
+.game-meta { background: var(--accent); color: var(--accent-ink); text-align: center; font-size: 14px; font-weight: 600; padding: 0 16px 8px; opacity: .95; }
+.date-warn { background: #ffb020; color: #3d2600; font-weight: 700; font-size: 14px; padding: 9px 16px; text-align: center; border-bottom: 2px solid #c27c00; }
+.mark-row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; margin-top: 2px; }
+.mark-row button { background: rgba(255,255,255,.16); color: var(--accent-ink); border: 1px solid rgba(255,255,255,.35); border-radius: 8px; padding: 6px 10px; font-size: 13px; font-weight: 700; min-height: 34px; cursor: pointer; font-family: inherit; }
+.mark-count { font-size: 13px; opacity: .9; width: 100%; text-align: center; }
+.today-tag { display: inline-block; background: var(--gold); color: #1d2433; font-size: 12px; font-weight: 800; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: .03em; margin-right: 6px; }
+.past-games { margin-top: 20px; opacity: .85; }
+.past-games summary { cursor: pointer; font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+.saved-score { font-size: 12px; color: var(--warn); font-weight: 600; }
+.box-filter { margin: 4px 0 10px; display: flex; flex-wrap: wrap; }
+.box-filter button { flex: 1; min-width: 44px; padding: 6px 8px; }
+.trend-wrap { overflow-x: auto; }
+svg.trend { width: 100%; min-width: 320px; height: auto; display: block; }
+svg.trend .bar { fill: var(--accent); }
+svg.trend .axis { stroke: var(--line); stroke-width: 1.5; }
+svg.trend .avg { stroke: var(--gold); stroke-width: 2; stroke-dasharray: 6 4; }
+svg.trend text { font: 600 17px -apple-system, Segoe UI, Roboto, sans-serif; text-anchor: middle; fill: var(--ink); }
+svg.trend .tl { fill: var(--muted); font-weight: 500; }
+svg.trend .tl.op { font-size: 14px; }
+svg.trend .tv { font-size: 20px; font-weight: 800; }
+.trend-seg { display: flex; flex-wrap: wrap; gap: 2px; margin: 4px 0 10px; }
+.trend-seg button { flex: 0 0 auto; padding: 6px 10px; }
+svg.trend .muted-t { fill: var(--muted); }
+svg.trend .avg-t { text-anchor: end; fill: #8a6400; font-weight: 800; }
+#print-root { display: none; }
+body.show-print #app, body.show-print #modal-root, body.show-print #toast-root { display: none; }
+body.show-print #print-root { display: block; background: #fff; min-height: 100vh; }
+.print-page { max-width: 1000px; margin: 0 auto; padding: 16px; color: #000; font-size: 13px; }
+.print-page h1 { font-size: 22px; margin: 8px 0 2px; }
+.print-page h3 { font-size: 15px; margin: 16px 0 4px; }
+.print-page .meta { color: #333; margin: 2px 0 8px; }
+.print-page .foot { margin-top: 14px; font-size: 11px; color: #555; }
+.print-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+.print-page .table-scroll { overflow-x: auto; }
+table.pt { border-collapse: collapse; width: 100%; font-size: 12px; margin-bottom: 6px; }
+table.pt th, table.pt td { border: 1px solid #999; padding: 3px 5px; text-align: center; white-space: nowrap; position: static; background: #fff; color: #000; }
+table.pt th { background: #eee; font-size: 11px; text-transform: uppercase; }
+table.pt .name { text-align: left; }
+table.pt tr.tot td { font-weight: 800; border-top: 2px solid #000; }
+table.pt.quarters { width: auto; min-width: 50%; }
+@media print {
+  @page { size: landscape; margin: 0.4in; }
+  body { background: #fff; }
+  .print-actions { display: none !important; }
+  .print-page { padding: 0; max-width: none; }
+}
+@media screen and (max-width: 700px) { body.show-print .print-page { overflow-x: auto; } }
+.top .link.gear { font-size: 22px; line-height: 1; padding: 4px 8px; }
+.alerts { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+.alert { font-size: 13px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--warn-bg); color: #6b4300; }
+.alert.bad { background: var(--bad-bg); color: var(--bad); }
+.alert.out { background: var(--bad); color: #fff; }
+.alert.muted-alert { background: #e6eaf1; color: var(--muted); }
+.live-note { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); animation: pulse 1.6s infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+.team-fouls { font-size: 13px; opacity: .9; }
+.end-game { margin-top: 16px; border: 2px solid var(--bad); }
+.access-step { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; margin-top: 14px; }
+.step-title { font-weight: 800; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: inline-grid; place-items: center; font-size: 13px; }
+.step-label { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 12px 0 2px; }
+label.check.choice { align-items: flex-start; }
+label.check span .muted, label.check.choice span .muted { display: block; font-weight: 400; }
+.group-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.group-checks label.check { padding: 6px 0; align-items: flex-start; }
+.access-step:has(input[name=see][value=none]:checked) .view-groups { opacity: .35; pointer-events: none; }
+.access-help { margin: 4px 0 8px; padding-left: 18px; }
+.access-help li { margin-bottom: 4px; }
+.invite-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.invite-actions .btn { width: 100%; }
+.player-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.side-seg button { flex: 1; padding: 9px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plays .undone .grow { text-decoration: line-through; color: var(--muted); }
+
+.stepper-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.stepper-row:first-of-type { border-top: 0; }
+.stepper-row .lbl { flex: 1; font-weight: 600; }
+.stepper-row .val { width: 38px; text-align: center; font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.stepper-row button { width: 44px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: #f5f7fb; font-size: 22px; font-weight: 700; }
+
+/* Toast */
+.toast { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: #1d2433; color: #fff; padding: 10px 12px 10px 16px; border-radius: 12px; display: flex; gap: 12px; align-items: center; z-index: 60; max-width: calc(100vw - 32px); box-shadow: 0 6px 20px rgba(0,0,0,.25); font-weight: 600; }
+.toast button { color: var(--gold); font-weight: 800; padding: 6px 8px; }
+.loading { text-align: center; padding: 60px 16px; color: var(--muted); font-weight: 600; }
+.copybox { display: flex; gap: 8px; margin-top: 8px; }
+.copybox input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
+.pin { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 800; letter-spacing: .12em; background: #eef2f8; padding: 2px 8px; border-radius: 6px; }
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Stats">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1c3d8c">
+</head>
+<body>
+<div id="app"><div class="loading">Loading…</div></div>
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+<div id="print-root"></div>
+
+<script>
+'use strict';
+// ===========================================================================
+// Basics
+// ===========================================================================
+const TEAM = '_team';
+const $ = sel => document.querySelector(sel);
+const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
+  del(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } },
+  has(k) { try { return localStorage.getItem(k) != null; } catch (e) { return false; } },
+};
+
+// Two ways to reach the server. On the Apps Script page, google.script.run. As the installable
+// offline app (docs/), a plain fetch to the team's /exec link. Everything else is shared.
+const IS_GAS = !!(window.google && google.script && google.script.run);
+const PWA = !IS_GAS;
+function validApiUrl(u) {
+  u = String(u || '').trim();
+  if (/^https:\/\/script\.google\.com\/macros\/s\/[^\s?#]+\/exec$/.test(u)) return true;
+  return location.hostname === 'localhost' && /^http:\/\/localhost(:\d+)?\/exec$/.test(u); // local testing only
+}
+let API_URL = PWA ? store.get('gcs_api', '') : '';
+if (PWA) {
+  // First open from the coach's link: remember the app link, then hide it from the address bar.
+  try {
+    const q = new URLSearchParams(location.search), a = q.get('api');
+    if (a != null) {
+      if (validApiUrl(a)) {
+        if (a !== API_URL) store.del('gcs_home');
+        API_URL = a.trim(); store.set('gcs_api', API_URL);
+      }
+      q.delete('api');
+      history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q.toString() : '') + location.hash);
+    }
+  } catch (e) { /* ignore */ }
+  if (!validApiUrl(API_URL)) API_URL = '';
+  if ('serviceWorker' in navigator) window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+  // Ask the browser not to clear what is saved on this device (plays waiting to upload, offline games).
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
+}
+const NEED_NET = 'This needs an internet connection.';
+const needNet = () => { if (!isOffline()) return false; if (modalState) modalErr(NEED_NET); else toast(NEED_NET); return true; };
+const isOffline = () => !!(S.offline || navigator.onLine === false);
+const errText = err => err && err.network ? NEED_NET : (err && err.message) || 'Something went wrong.';
+
+function call(action, data) {
+  const req = { action: action, data: data || {}, pin: S.pin };
+  if (IS_GAS) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(err => reject(normErr(err)))
+        .api(req);
+    });
+  }
+  return callFetch(req);
+}
+async function callFetch(req) {
+  const netErr = msg => { const e = normErr('NetworkError: ' + msg); e.network = true; return e; };
+  if (!API_URL) throw new Error('This device is not connected to a team yet.');
+  if (navigator.onLine === false) throw netErr('offline');
+  const ctl = window.AbortController ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), 25000) : null;
+  let res, text;
+  try {
+    // text/plain keeps this a "simple" request, so the browser sends no CORS preflight.
+    res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req), redirect: 'follow', signal: ctl ? ctl.signal : undefined });
+    text = await res.text();
+  } catch (e) {
+    throw netErr((e && e.message) || 'failed to fetch');
+  } finally { clearTimeout(timer); }
+  let j = null;
+  try { j = JSON.parse(text); } catch (e) { /* not JSON: a sign-in or error page */ }
+  if (!j || typeof j !== 'object') throw netErr('the app link did not answer correctly (' + res.status + ')');
+  if (!j.ok) throw normErr(j.error || 'Something went wrong.');
+  return j.result;
+}
+function normErr(err) {
+  const raw = String((err && err.message) || err || 'Something went wrong.');
+  const e = new Error(raw.replace(/^(Exception|Error):\s*/i, '').replace(/^AUTH:\s*/, ''));
+  e.auth = raw.indexOf('AUTH:') >= 0;
+  e.network = /network|connection|failed to fetch|timed? ?out|HTTP 0/i.test(raw);
+  return e;
+}
+
+// ===========================================================================
+// Stat math
+// ===========================================================================
+// REB = rebounds entered before offensive/defensive were split; line().REB is the total of all three.
+const BASE = ['GP', 'FG2M', 'FG2A', 'FG3M', 'FG3A', 'FTM', 'FTA', 'OREB', 'DREB', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PF'];
+const BASE_LABELS = {
+  GP: 'Played (1 = yes)', FG2M: '2PT made', FG2A: '2PT attempts', FG3M: '3PT made', FG3A: '3PT attempts',
+  FTM: 'Free throws made', FTA: 'Free throw attempts', OREB: 'Offensive rebounds', DREB: 'Defensive rebounds', REB: 'Rebounds (not split)', AST: 'Assists', STL: 'Steals',
+  BLK: 'Blocks', TO: 'Turnovers', PF: 'Fouls',
+};
+// What each tracker button records.
+const TAPS = {
+  '2M': { label: '2PT made', ev: [['FG2M', 1], ['FG2A', 1]] },
+  '2X': { label: '2PT miss', ev: [['FG2A', 1]] },
+  '3M': { label: '3PT made', ev: [['FG3M', 1], ['FG3A', 1]] },
+  '3X': { label: '3PT miss', ev: [['FG3A', 1]] },
+  'FM': { label: 'Free throw made', ev: [['FTM', 1], ['FTA', 1]] },
+  'FX': { label: 'Free throw miss', ev: [['FTA', 1]] },
+  'OREB': { label: 'Off. rebound', ev: [['OREB', 1]] },
+  'DREB': { label: 'Def. rebound', ev: [['DREB', 1]] },
+  'REB': { label: 'Rebound', ev: [['REB', 1]] },
+  'AST': { label: 'Assist', ev: [['AST', 1]] },
+  'STL': { label: 'Steal', ev: [['STL', 1]] },
+  'BLK': { label: 'Block', ev: [['BLK', 1]] },
+  'TO': { label: 'Turnover', ev: [['TO', 1]] },
+  'PF': { label: 'Foul', ev: [['PF', 1]] },
+};
+
+function n0(v) { return Number(v) || 0; }
+function line(s) {
+  s = s || {};
+  const o = {};
+  BASE.forEach(k => { o[k] = n0(s[k]); });
+  o.rebRaw = o.REB;
+  o.REB = o.rebRaw + o.OREB + o.DREB;
+  o.pts = 2 * o.FG2M + 3 * o.FG3M + o.FTM;
+  o.fgm = o.FG2M + o.FG3M;
+  o.fga = o.FG2A + o.FG3A;
+  return o;
+}
+function addLine(a, b) { const o = {}; BASE.forEach(k => { o[k] = n0(a[k]) + n0(b[k]); }); return o; }
+const isOpp = k => String(k).indexOf('opp:') === 0;
+function hasAny(s) { return !!s && BASE.some(k => k !== 'GP' && n0(s[k]) !== 0); }
+function played(s) { return !!s && (n0(s.GP) > 0 || hasAny(s)); }
+function pct(m, a) { return a ? (100 * m / a).toFixed(1) : '–'; }
+function pctNum(m, a) { return a ? Math.round(1000 * m / a) / 10 : ''; }
+function avg(v, gp) { return gp ? (v / gp).toFixed(1) : '–'; }
+function teamPts(box) {
+  let p = 0;
+  Object.keys(box || {}).forEach(k => { if (k !== TEAM && !isOpp(k)) p += line(box[k]).pts; });
+  return p;
+}
+// Opponent score = quick +1/+2/+3 points plus points from opponent shots tracked by player.
+function oppPts(box) {
+  let p = n0(box && box[TEAM] && box[TEAM].OPP);
+  Object.keys(box || {}).forEach(k => { if (isOpp(k)) p += line(box[k]).pts; });
+  return p;
+}
+function sideTotals(box, opp) {
+  let tot = {};
+  Object.keys(box || {}).forEach(k => { if (k !== TEAM && isOpp(k) === opp) tot = addLine(tot, box[k]); });
+  return tot;
+}
+function hasOppStats(box) { return Object.keys(box || {}).some(k => isOpp(k) && hasAny(box[k])); }
+function oppPlayerList(roster, box) {
+  const list = (roster || []).map(p => ({ id: 'opp:' + p.number, number: p.number, name: p.name || '', active: true }));
+  Object.keys(box || {}).forEach(k => {
+    if (isOpp(k) && k !== 'opp:team' && !list.some(p => p.id === k)) list.push({ id: k, number: k.slice(4), name: '', active: true });
+  });
+  list.sort(byNumber);
+  list.push({ id: 'opp:team', number: '', name: 'Team / unknown #', active: true });
+  return list;
+}
+
+function fmtDate(d) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d || '');
+  if (!m) return d || '';
+  const dt = new Date(+m[1], +m[2] - 1, +m[3]);
+  return dt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+const LOC = { home: 'vs', away: '@', neutral: 'vs' };
+function gameTitle(g) { return (LOC[g.location] || 'vs') + ' ' + g.opponent; }
+const LOC_NAME = { home: 'Home', away: 'Away', neutral: 'Neutral' };
+function gameMeta(g) { return fmtDate(g.date) + ' · ' + (LOC_NAME[g.location] || 'Home'); }
+// Non-final games split by date: today first, then future, then past games nobody ended.
+function groupGames(games) {
+  const today = todayISO();
+  const open = games.filter(g => g.status !== 'final').sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    today: open.filter(g => g.date === today),
+    upcoming: open.filter(g => g.date > today),
+    past: open.filter(g => g.date < today).reverse(),
+  };
+}
+const PAST_NOTE = 'These games were never ended. If one wasn\'t played, ask the coach to remove it.';
+function savedScoreNote(g, us, them) { return g.finalScore && g.finalScore !== us + '-' + them ? '<div class="saved-score">saved: ' + esc(g.finalScore) + '</div>' : ''; }
+function playerLabel(p) { return ((p.number !== '' ? '#' + p.number + ' ' : '') + p.name).trim(); }
+function can(k) { return !!S.me && (S.me.role === 'coach' || !!(S.me.perms && S.me.perms[k])); }
+function hasDashboard() { return can('viewStats') || can('manage'); }
+const fullAccess = () => !!S.me && (S.me.role === 'coach' || !!(S.me.perms && S.me.perms.manage));
+// Which stats this person may enter (coach / assistant coach: everything).
+function canTrackGroup(g) { return fullAccess() || ((S.me.perms || {}).trackGroups || TRACK_GROUP_KEYS).indexOf(g) >= 0; }
+// Which stats this person may see. While tracking a live game they see that game's numbers.
+function canSeeGroup(g) {
+  if (fullAccess() || (S.view === 'game' && S.t && S.t.canTrack)) return true;
+  return ((S.me.perms || {}).viewGroups || VIEW_GROUP_KEYS).indexOf(g) >= 0;
+}
+const STAT_GROUP = { FG2M: 'scoring', FG2A: 'scoring', FG3M: 'scoring', FG3A: 'scoring', FTM: 'scoring', FTA: 'scoring', REB: 'reb', OREB: 'reb', DREB: 'reb', AST: 'ast', STL: 'stl', BLK: 'blk', TO: 'to', PF: 'pf' };
+const TAP_GROUP = { '2M': 'scoring', '2X': 'scoring', '3M': 'scoring', '3X': 'scoring', 'FM': 'scoring', 'FX': 'scoring', REB: 'reb', OREB: 'reb', DREB: 'reb', AST: 'ast', STL: 'stl', BLK: 'blk', TO: 'to', PF: 'pf' };
+function canTrackGame(g) {
+  if (can('manage')) return true;
+  if (g.status === 'final') return false;
+  return (g.scorerIds || []).indexOf(S.me.id) >= 0 || can('trackAny');
+}
+function byNumber(a, b) {
+  const x = a.number === '' ? 999 : +a.number, y = b.number === '' ? 999 : +b.number;
+  return x - y || a.name.localeCompare(b.name);
+}
+
+// ===========================================================================
+// App state
+// ===========================================================================
+// Team colour: remembered on this phone so the sign-in screen matches next time.
+const TEAM_COLORS = [['#1c3d8c', 'Navy'], ['#7a1d2e', 'Maroon'], ['#1f5d3a', 'Forest'], ['#4b2a84', 'Purple'], ['#1d2433', 'Black'], ['#b0242c', 'Red']];
+function applyColor(c) {
+  if (!c || !TEAM_COLORS.some(x => x[0] === c)) return;
+  document.documentElement.style.setProperty('--accent', c);
+  store.set('gcs_color', c);
+}
+applyColor(store.get('gcs_color', ''));
+const S = {
+  pin: store.get('gcs_pin', ''),
+  teamName: store.get('gcs_team', 'Team Stats'),
+  me: null,
+  view: 'loading',
+  pinEntry: '',
+  loginErr: '',
+  data: null,        // coach: everything; scorer: their games
+  tab: 'season',     // coach tab
+  resultsFilter: 'all',
+  seasonMode: 'avg',
+  sort: { key: 'pts', dir: -1 },
+  playerId: null,    // coach player detail
+  t: null,           // open game (tracker)
+  busy: false,
+  offline: false,    // showing the copy saved on this device because there is no connection
+  apiErr: '', apiDraft: '',
+};
+
+// ===========================================================================
+// Offline-safe save queue. Every tap is saved on this device first, then sent.
+// Each play has a unique id, so a retry after a dropped connection is never
+// double counted by the server.
+// ===========================================================================
+const Queue = {
+  items: store.get('gcs_queue', []),
+  busy: false, paused: false, timer: null, delay: 2000, error: '', offline: false, waiters: [],
+  save() { store.set('gcs_queue', this.items); updateSync(); },
+  push(evs) { this.items = this.items.concat(evs); this.save(); this.flush(); },
+  count(gameId) { return this.items.filter(e => !gameId || e.gameId === gameId).length; },
+  // Plays go first. A game's "final" status is sent only once none of that game's plays are left in the queue.
+  isPlay: e => e.kind !== 'status',
+  async flush() {
+    if (this.busy || this.paused || !this.items.length || !S.pin) return;
+    const head = this.items.find(e => this.isPlay(e) || !this.items.some(p => this.isPlay(p) && p.gameId === e.gameId));
+    if (!head) return;
+    this.busy = true;
+    clearTimeout(this.timer);
+    const gameId = head.gameId, mode = head.mode || '';
+    let ok = false;
+    try {
+      if (!this.isPlay(head)) {
+        try {
+          await call('setStatus', { gameId: gameId, status: head.status });
+        } catch (err) {
+          // A refusal (not a lost connection) will never succeed on retry, so tell the person and move on.
+          if (!err.network && !err.auth) { this.items = this.items.filter(e => e !== head); toast('Could not end the game: ' + err.message); }
+          throw err;
+        }
+        this.items = this.items.filter(e => e !== head);
+      } else {
+        const batch = this.items.filter(e => this.isPlay(e) && e.gameId === gameId && (e.mode || '') === mode).slice(0, 100);
+        await call('record', { gameId: gameId, mode: mode, events: batch.map(e => ({ id: e.id, playerId: e.playerId, stat: e.stat, delta: e.delta, time: e.time, fix: !!e.fix, period: e.period })) });
+        const sent = new Set(batch.map(e => e.id));
+        this.items = this.items.filter(e => !sent.has(e.id));
+      }
+      this.error = ''; this.offline = false; this.delay = 2000;
+      ok = true;
+    } catch (err) {
+      this.offline = !!err.network;
+      this.error = err.network ? '' : err.message;
+      if (!err.network && this.isPlay(head)) {
+        // Don't let one stuck game block plays for another game.
+        const stuck = e => this.isPlay(e) && e.gameId === gameId && (e.mode || '') === mode;
+        this.items = this.items.filter(e => !stuck(e)).concat(this.items.filter(stuck));
+      }
+      this.timer = setTimeout(() => this.flush(), this.delay);
+      this.delay = Math.min(this.delay * 2, 30000);
+    }
+    this.busy = false;
+    this.save();
+    this.waiters.splice(0).forEach(f => f());
+    if (ok && head.kind === 'status' && S.view !== 'game') refreshHomeQuietly();
+    if (ok && this.items.length) this.flush();
+  },
+  idle() { return this.busy ? new Promise(r => this.waiters.push(r)) : Promise.resolve(); },
+  // quick: give up as soon as an attempt fails because there is no connection (the caller will queue the rest).
+  async drain(gameId, ms, quick) {
+    const until = Date.now() + (ms || 15000);
+    while (this.count(gameId) && Date.now() < until) {
+      clearTimeout(this.timer); this.busy || this.flush();
+      await this.idle();
+      if (quick && this.offline) break;
+      if (this.count(gameId)) await new Promise(r => setTimeout(r, 600));
+    }
+    return this.count(gameId) === 0;
+  },
+};
+window.addEventListener('online', () => { Queue.flush(); retryHome(); });
+setInterval(() => Queue.flush(), 15000);
+setInterval(() => retryHome(), 30000);
+// Live bench view: while a live game is open, pull the latest numbers every few seconds.
+const LIVE_REFRESH_MS = 8000;
+setInterval(() => {
+  const t = S.t;
+  if (S.view !== 'game' || !t || t.mode || t.game.status !== 'live' || modalState) return;
+  if (document.visibilityState && document.visibilityState !== 'visible') return;
+  refreshGameFromServer(true);
+}, LIVE_REFRESH_MS);
+
+function syncInfo() {
+  const n = Queue.count();
+  if (!n) return { cls: '', text: 'All saved' };
+  if (Queue.error) return { cls: 'error', text: n + ' not saved: ' + Queue.error };
+  if (Queue.offline) return { cls: 'offline', text: 'Offline · ' + n + ' waiting' };
+  return { cls: 'pending', text: 'Saving ' + n + '…' };
+}
+function syncHtml() { const s = syncInfo(); return '<span class="sync ' + s.cls + '" data-sync>' + esc(s.text) + '</span>'; }
+function updateSync() {
+  const s = syncInfo();
+  document.querySelectorAll('[data-sync]').forEach(el => { el.className = 'sync ' + s.cls; el.textContent = s.text; });
+}
+
+// ===========================================================================
+// Rendering
+// ===========================================================================
+function render() {
+  const v = S.view;
+  let html;
+  if (v === 'loading') html = '<div class="loading">Loading…</div>';
+  else if (v === 'setup') html = viewSetup();
+  else if (v === 'login') html = viewLogin();
+  else if (v === 'scorer') html = viewScorerHome();
+  else if (v === 'coach') html = viewCoach();
+  else if (v === 'player') html = viewPlayer();
+  else if (v === 'game') html = viewGame();
+  if (S.offline && v !== 'login' && v !== 'setup' && v !== 'loading') html = offlineBanner() + html;
+  $('#app').innerHTML = html;
+  updateSync();
+}
+
+const OFFLINE_NOTE = 'Offline: showing what\'s saved on this device. Stats you enter will upload when you\'re back on Wi-Fi.';
+function offlineBanner() { return '<div class="offline-banner" role="status" data-offline-banner>' + esc(OFFLINE_NOTE) + '</div>'; }
+
+let modalState = null;
+function openModal(html, opts) { modalState = opts || {}; $('#modal-root').innerHTML = '<div class="overlay" data-act="overlay"><div class="modal" role="dialog">' + html + '</div></div>'; const f = $('#modal-root input[autofocus]'); if (f) f.focus(); }
+function closeModal() { modalState = null; $('#modal-root').innerHTML = ''; }
+function modalErr(msg) { const el = $('#modal-root .err'); if (el) el.textContent = msg; }
+
+let toastTimer = null;
+function toast(msg, undoPlayId) {
+  clearTimeout(toastTimer);
+  $('#toast-root').innerHTML = '<div class="toast"><span>' + esc(msg) + '</span>' +
+    (undoPlayId ? '<button data-act="undo" data-id="' + esc(undoPlayId) + '">UNDO</button>' : '') + '</div>';
+  toastTimer = setTimeout(() => { $('#toast-root').innerHTML = ''; }, undoPlayId ? 4000 : 2500);
+}
+
+function topBar(title, left, right, tabs) {
+  return '<div class="top"><div class="bar">' + (left || '') + '<h1>' + esc(title) + '</h1>' + (right || '') + '</div>' + (tabs || '') + '</div>';
+}
+
+// ---------------------------------------------------------------------------
+// Login
+// ---------------------------------------------------------------------------
+function viewLogin() {
+  // One dot per digit typed. PINs can be any length from 4 to 8, so don't hint at a fixed length.
+  const dots = S.pinEntry.length ? Array.from({ length: S.pinEntry.length }, () => '<span class="on"></span>').join('') : '<span class="muted small">Enter your PIN</span>';
+  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'];
+  return '<div class="login">' +
+    '<div class="logo">🏀</div>' +
+    '<h1>' + esc(S.teamName) + '</h1><div class="muted">Stat Tracker</div>' +
+    '<div class="dots">' + dots + '</div>' +
+    '<div class="err">' + esc(S.loginErr) + '</div>' +
+    '<div class="keypad">' + keys.map(k =>
+      '<button data-act="key" data-k="' + k + '" aria-label="' + k + '">' + (k === 'clear' ? '<span style="font-size:15px">Clear</span>' : k === 'back' ? '⌫' : k) + '</button>').join('') + '</div>' +
+    '<button class="btn primary big" data-act="login" ' + (S.busy || S.pinEntry.length < 4 ? 'disabled' : '') + '>' + (S.busy ? 'Signing in…' : 'Sign in') + '</button>' +
+    '<p class="muted small" style="margin-top:18px">Parents: use the PIN the coach gave you.</p>' +
+    '<button class="btn" data-act="help">First time? How it works</button>' +
+    (PWA ? '<button class="link" style="color:var(--muted);margin-top:10px" data-act="changeApi">Change team link</button>' : '') +
+    '</div>';
+}
+
+// First run of the installable app: it needs to know which team's server to talk to.
+function viewSetup() {
+  return '<div class="login">' +
+    '<div class="logo">🏀</div>' +
+    '<h1>Team Stats</h1><div class="muted">Connect this device to your team</div>' +
+    '<form data-form="api" style="margin-top:18px;text-align:left" autocomplete="off">' +
+    '<label class="field">Paste your team\'s app link (from the coach\'s ⚙ Settings → App link)' +
+    '<input name="url" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(S.apiDraft) + '"></label>' +
+    '<div class="err" data-api-err>' + esc(S.apiErr) + '</div>' +
+    '<button class="btn primary big" type="submit">Connect</button></form>' +
+    '</div>';
+}
+
+// ---------------------------------------------------------------------------
+// Scorer (parent) home
+// ---------------------------------------------------------------------------
+function viewScorerHome() {
+  const d = S.data || { games: [] };
+  const games = d.games || [];
+  const mine = d.myPlayers || [];
+  const pgames = d.playerGames || [];
+  const names = mine.map(p => p.name.split(' ')[0]).join(' & ');
+  const gameCard = (g, btn, tag, mode) => '<div class="card"><div class="row"><div class="grow" style="flex:1"><div style="font-weight:700;font-size:17px">' + (tag ? '<span class="today-tag">' + esc(tag) + '</span>' : '') + esc(gameTitle(g)) + '</div>' +
+    '<div class="muted small">' + esc(gameMeta(g)) + '</div>' + readyHtml(g, mode) + '</div>' + statusChip(g.status) + '</div>' + btn + '</div>';
+  const grp = groupGames(games.filter(g => !isEnding(g.id)));
+  const trackBtn = (g, primary) => '<button class="btn ' + (primary ? 'primary ' : '') + 'big" style="margin-top:12px" data-act="openGame" data-id="' + esc(g.id) + '">' + (g.status === 'live' ? 'Continue tracking' : 'Start tracking') + '</button>';
+  let html = '';
+  if (games.length || !mine.length) {
+    html += '<div class="section-title">Team stats you\'re keeping</div>';
+    if (!grp.today.length && !grp.upcoming.length && !grp.past.length) html += '<div class="card empty">No games are assigned to you right now.<br>Coach will assign you a game.</div>';
+    if (grp.today.length) html += '<div class="section-title" style="margin-top:10px">Today</div>' + grp.today.map(g => gameCard(g, trackBtn(g, true), grp.today.length === 1 ? 'Today\'s game' : '')).join('');
+    else if (grp.upcoming.length || grp.past.length) html += '<p class="small muted" style="margin:8px 2px 0">No game is scheduled for today.</p>';
+    if (grp.upcoming.length) html += '<div class="section-title">Coming up</div>' + grp.upcoming.map(g => gameCard(g, trackBtn(g, !grp.today.length && g === grp.upcoming[0]))).join('');
+    if (grp.past.length) html += '<details class="past-games"' + (!grp.today.length && !grp.upcoming.length ? ' open' : '') + '><summary>Past games not ended (' + grp.past.length + ')</summary>' +
+      '<p class="small muted" style="margin:6px 2px 0">' + esc(PAST_NOTE) + '</p>' + grp.past.map(g => gameCard(g, trackBtn(g, false))).join('') + '</details>';
+  }
+  if (mine.length) {
+    // Next few games only, so the list stays short. Today's game comes first.
+    const rank = g => g.date === todayISO() ? 0 : g.date > todayISO() ? 1 : 2;
+    const todayCount = pgames.filter(g => g.date === todayISO()).length;
+    const upcoming = pgames.filter(g => !isEnding(g.id) && (g.date >= todayISO() || g.status === 'live')).sort((a, b) => rank(a) - rank(b) || a.date.localeCompare(b.date)).slice(0, 4);
+    html += '<div class="section-title">Your player' + (mine.length > 1 ? 's' : '') + ': ' + esc(mine.map(playerLabel).join(', ')) + '</div>' +
+      '<p class="small muted" style="margin:6px 2px 0">Keep your own record of ' + esc(names) + ' in any game. It goes to the coach and never changes the official stats.</p>' +
+      (upcoming.length ? upcoming.map(g => gameCard(g, '<button class="btn ' + (rank(g) === 0 ? 'primary ' : '') + 'big" style="margin-top:12px" data-act="openPersonal" data-id="' + esc(g.id) + '">Track ' + esc(names) + '</button>', rank(g) === 0 && todayCount === 1 ? 'Today\'s game' : '', 'personal')).join('')
+        : '<div class="card empty">No upcoming games.</div>');
+  }
+  if (d.myStats) html += viewMyStats(mine, d.myStats);
+  return topBar(S.teamName, '', '<button class="link" data-act="logout">Sign out</button>') +
+    '<div class="wrap">' +
+    '<div class="row" style="margin-top:14px"><h2 style="font-size:20px">Hi, ' + esc(S.me.name) + '</h2><span class="spacer"></span>' + syncHtml() + '</div>' +
+    html +
+    '<div class="row" style="margin-top:16px"><button class="btn" data-act="refreshScorer">Refresh</button><button class="btn" data-act="help">How it works</button></div>' +
+    '</div>';
+}
+
+// Read-only official stats for a parent's own players (only when the coach allows it).
+// ---------------------------------------------------------------------------
+// Player trends: one bar per game for the chosen stat, with the season average as a dashed line.
+// ---------------------------------------------------------------------------
+const TRENDS = [
+  { k: 'pts', l: 'PTS', g: 'scoring', v: l => l.pts },
+  { k: 'reb', l: 'REB', g: 'reb', v: l => l.REB },
+  { k: 'ast', l: 'AST', g: 'ast', v: l => l.AST },
+  { k: 'stl', l: 'STL', g: 'stl', v: l => l.STL },
+  { k: 'to', l: 'TO', g: 'to', v: l => l.TO },
+  { k: 'pf', l: 'PF', g: 'pf', v: l => l.PF },
+  { k: 'fgp', l: 'FG%', g: 'scoring', pct: ['fgm', 'fga'] },
+  { k: 'ftp', l: 'FT%', g: 'scoring', pct: ['FTM', 'FTA'] },
+];
+function trendChart(games) {
+  const opts = TRENDS.filter(o => canSeeGroup(o.g)).concat(typeof flowTrends === 'function' ? flowTrends() : []);
+  if (games.length < 2 || !opts.length) return '';
+  const o = opts.find(x => x.k === S.trendStat) || opts[0];
+  const pts = games.map(x => {
+    if (o.pct) { const a = x.l[o.pct[1]]; return a ? Math.round(1000 * x.l[o.pct[0]] / a) / 10 : null; }
+    return o.v(x.l);
+  });
+  const vals = pts.filter(v => v != null);
+  if (!vals.length) return '';
+  let avgV;
+  if (o.pct) {
+    const m = games.reduce((a, x) => a + x.l[o.pct[0]], 0), at = games.reduce((a, x) => a + x.l[o.pct[1]], 0);
+    avgV = at ? 100 * m / at : 0;
+  } else avgV = vals.reduce((a, v) => a + v, 0) / vals.length;
+  const max = Math.max(o.pct ? 100 : 1, ...vals, avgV);
+  const W = 640, H = 260, padL = 20, padB = 48, padT = 28, bw = (W - padL - 8) / games.length;
+  const y = v => padT + (H - padT - padB) * (1 - v / max);
+  const bars = games.map((x, i) => {
+    const v = pts[i], cx = padL + i * bw + bw / 2;
+    const label = '<text x="' + cx + '" y="' + (H - padB + 20) + '" class="tl">' + esc(fmtDate(x.game.date).replace(/^\w+, /, '')) + '</text>' +
+      '<text x="' + cx + '" y="' + (H - padB + 38) + '" class="tl op">' + esc(String(x.game.opponent).slice(0, 10)) + '</text>';
+    if (v == null) return label + '<text x="' + cx + '" y="' + (H - padB - 4) + '" class="tv muted-t">–</text>';
+    const top = y(v), w = Math.max(6, Math.min(48, bw * 0.6));
+    return '<rect x="' + (cx - w / 2) + '" y="' + top + '" width="' + w + '" height="' + Math.max(1, H - padB - top) + '" rx="4" class="bar"/>' +
+      '<text x="' + cx + '" y="' + (top - 4) + '" class="tv">' + (o.pct ? v.toFixed(0) + '%' : v) + '</text>' + label;
+  }).join('');
+  const ay = y(avgV);
+  const svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" class="trend" role="img" aria-label="' + esc(o.l) + ' by game">' +
+    '<line x1="' + padL + '" x2="' + (W - 4) + '" y1="' + (H - padB) + '" y2="' + (H - padB) + '" class="axis"/>' + bars +
+    '<line x1="' + padL + '" x2="' + (W - 4) + '" y1="' + ay + '" y2="' + ay + '" class="avg"/>' +
+    '<text x="' + (W - 6) + '" y="' + (ay - 4) + '" class="avg-t">avg ' + (o.pct ? avgV.toFixed(1) + '%' : avgV.toFixed(1)) + '</text></svg>';
+  return '<div class="card"><div class="row wrap-row" style="margin-bottom:6px"><h2 style="margin:0;flex:1">Trend</h2></div>' +
+    '<div class="seg trend-seg">' + opts.map(x => '<button class="' + (x.k === o.k ? 'on' : '') + '" data-act="trendStat" data-k="' + x.k + '">' + x.l + '</button>').join('') + '</div>' +
+    '<div class="trend-wrap">' + svg + '</div><p class="muted small" style="margin:4px 0 0">One bar per game, oldest on the left. Dashed line = season average.</p></div>';
+}
+
+function viewMyStats(mine, myStats) {
+  return mine.map(p => {
+    const games = myStats.filter(x => played(x.box[p.id]));
+    let tot = {};
+    games.forEach(x => { tot = addLine(tot, x.box[p.id]); });
+    const l = line(tot), gp = games.length;
+    const tiles = statTiles(l, gp, ['PPG', 'RPG', 'APG', 'SPG', 'FG%', 'FT%']);
+    const rows = games.slice().reverse().map(x => '<tr><td>' + esc(fmtDate(x.game.date)) + ' <span class="muted">' + esc(gameTitle(x.game)) + '</span></td>' + boxCells(line(x.box[p.id])) + '</tr>').join('');
+    return '<div class="section-title">' + esc(playerLabel(p)) + ': official stats</div><div class="tiles">' + tiles + '</div>' +
+      trendChart(games.map(x => ({ game: x.game, l: line(x.box[p.id]) }))) +
+      '<div class="card"><div class="table-wrap"><table><thead><tr><th>Game</th>' + boxHead() + '</tr></thead><tbody>' +
+      (rows || '<tr><td colspan="12" class="muted" style="position:static">No games yet</td></tr>') + '</tbody></table></div></div>';
+  }).join('');
+}
+
+// "Ready offline": a copy of the game is saved on this device, so it opens with no connection.
+function readyHtml(g, mode) { return store.has('gcs_box_' + localKey(g.id, mode)) ? '<div class="ready" data-ready>✓ Ready offline</div>' : ''; }
+// A game this device ended while offline: its "final" is queued and goes up after the last play.
+function isEnding(gameId) { return Queue.items.some(e => e.kind === 'status' && e.gameId === gameId); }
+function statusChip(status) { return '<span class="chip ' + status + '">' + (status === 'scheduled' ? 'Upcoming' : status) + '</span>'; }
+
+// ---------------------------------------------------------------------------
+// Game screen (tracker + box score), used by parents and the coach
+// ---------------------------------------------------------------------------
+function gamePlayers() {
+  const t = S.t;
+  return t.players.slice().sort(byNumber);
+}
+function oppPlayers() { return oppPlayerList(S.t.game.oppRoster, S.t.box); }
+function findAnyPlayer(id) {
+  return isOpp(id) ? oppPlayers().find(p => p.id === id) : S.t.players.find(p => p.id === id);
+}
+function anyLabel(id) {
+  const p = findAnyPlayer(id);
+  if (!p) return 'Player';
+  return isOpp(id) ? 'Opp ' + (p.number !== '' ? '#' + p.number : 'team') : playerLabel(p);
+}
+function onCourtPlayers() {
+  const t = S.t;
+  const ps = gamePlayers();
+  const any = ps.some(p => n0((t.box[p.id] || {}).GP) > 0);
+  return any ? ps.filter(p => n0((t.box[p.id] || {}).GP) > 0 || hasAny(t.box[p.id])) : ps.filter(p => p.active);
+}
+
+function viewGame() {
+  const t = S.t, g = t.game, coach = can('manage');
+  const left = '<button class="link" data-act="leaveGame">‹ Back</button>';
+  const personal = isPersonal();
+  const tabs = '<div class="tabs">' + (t.canTrack ? '<button class="' + (t.tab === 'track' ? 'on' : '') + '" data-act="gameTab" data-tab="track">Track</button>' : '') +
+    '<button class="' + (t.tab === 'box' ? 'on' : '') + '" data-act="gameTab" data-tab="box">' + (personal ? 'My numbers' : 'Box score') + '</button>' +
+    '</div>';
+  const scoreboard = personal
+    ? '<div class="score"><div class="inner personal-bar"><div><div class="nm">Your record of ' + esc(t.players.map(p => p.name.split(' ')[0]).join(' & ')) + '</div>' +
+      '<div class="small" style="opacity:.85">Kept separately. It doesn\'t change the official stats.</div></div>' +
+      '<div class="team"><div class="nm">Points</div><div class="pts">' + teamPts(t.box) + '</div></div></div></div>'
+    : '<div class="score"><div class="inner">' +
+    '<div class="team"><div class="nm">' + esc(S.teamName) + '</div><div class="pts">' + (canSeeGroup('scoring') ? teamPts(t.box) : '–') + '</div></div>' +
+    '<div class="dash">–</div>' +
+    '<div class="team"><div class="nm">' + esc(g.opponent) + '</div><div class="pts">' + (canSeeGroup('scoring') ? oppPts(t.box) : '–') + '</div>' +
+    '</div>' +
+    '</div></div>';
+  const dateWarn = t.canTrack && t.tab === 'track' && g.date !== todayISO()
+    ? '<div class="date-warn" role="alert">⚠ This game is dated ' + esc(fmtDate(g.date)) + ', not today. Make sure you picked the right game.</div>' : '';
+  const head = topBar(gameTitle(g), left, t.canTrack ? syncHtml() : '', tabs) + scoreboard +
+    '<div class="game-meta" data-gamedate>' + esc(gameMeta(g)) + '</div>' +
+    (t.canTrack && t.tab === 'track' ? periodBar() : '') + dateWarn;
+  const body = t.tab === 'track' && t.canTrack ? viewTracker() : viewGameBox(coach);
+  return head + '<div class="wrap">' + body + '</div>';
+}
+
+function periodBar() {
+  const t = S.t;
+  const max = Math.max(5, t.period + 1);
+  const btns = [];
+  for (let n = 1; n <= max; n++) {
+    if (n > 5 && n > t.period + 1) break;
+    btns.push('<button class="' + (n === t.period ? 'on' : '') + '" data-act="period" data-n="' + n + '">' + periodLabel(n) + '</button>');
+  }
+  const q = (t.periods || {})[t.period] || {};
+  const fouls = t.mode ? '' : '<div class="team-fouls">Team fouls ' + periodLabel(t.period) + ': <b>' + esc(shortTeam()) + ' ' + n0(q.usPF) + '</b> · ' + esc(t.game.opponent) + ' ' + n0(q.oppPF) + '</div>';
+  const tm = (t.box[TEAM] || {});
+  const R = rules();
+  const marks = t.mode ? '' : '<div class="mark-row">' +
+    '<button data-act="timeout" data-side="us">Timeout ' + esc(shortTeam()) + '</button>' +
+    '<button data-act="timeout" data-side="opp">Timeout ' + esc(shortOpp()) + '</button>' +
+    '<button data-act="endPeriod">End ' + periodLabel(t.period) + '</button>' +
+    '<div class="mark-count" data-timeouts>' + (R.timeouts > 0
+      ? 'Timeouts left: ' + esc(shortTeam()) + ' ' + Math.max(0, R.timeouts - n0(tm.TMO_US)) + ' · ' + esc(shortOpp()) + ' ' + Math.max(0, R.timeouts - n0(tm.TMO_OPP))
+      : 'Timeouts: ' + esc(shortTeam()) + ' ' + n0(tm.TMO_US) + ' · ' + esc(shortOpp()) + ' ' + n0(tm.TMO_OPP)) + '</div></div>';
+  return '<div class="period-bar"><div class="inner"><div class="seg period-seg">' + btns.join('') + '</div>' + fouls + marks + '</div></div>';
+}
+
+// Game rules (coach sets them in Settings). Defaults follow NFHS: 5 fouls to foul out, bonus on the 5th team foul in a quarter.
+const DEFAULT_RULES = { foulOut: 5, bonusFouls: 5, timeouts: 5 };
+function rules() {
+  const pick = o => (o && typeof o === 'object') ? o : null;
+  const src = pick(S.t && S.t.rules) || pick(S.data && S.data.settings) || {};
+  const out = {};
+  Object.keys(DEFAULT_RULES).forEach(k => { out[k] = Number.isFinite(Number(src[k])) && src[k] !== '' && src[k] !== null ? Number(src[k]) : DEFAULT_RULES[k]; });
+  return out;
+}
+function foulAlerts() {
+  const R = rules();
+  const t = S.t;
+  if (t.mode || !canSeeGroup('pf')) return '';
+  const items = [];
+  const q = (t.periods || {})[t.period] || {};
+  const bonus = (fouls, who) => {
+    if (fouls >= R.bonusFouls) items.push('<span class="alert bad">' + esc(who) + ' in the bonus</span>');
+    else if (fouls === R.bonusFouls - 1) items.push('<span class="alert warn">1 more foul = ' + esc(who) + ' in the bonus</span>');
+  };
+  if (Object.keys(t.periods || {}).length) {
+    bonus(n0(q.oppPF), shortTeam());          // their fouls give US the bonus
+    bonus(n0(q.usPF), t.game.opponent);        // our fouls give THEM the bonus
+  }
+  gamePlayers().forEach(p => {
+    const f = n0((t.box[p.id] || {}).PF);
+    if (f >= 3) items.push('<span class="alert ' + (f >= R.foulOut ? 'out' : f >= R.foulOut - 1 ? 'bad' : 'warn') + '">' + esc(p.number !== '' ? '#' + p.number + ' ' : '') + esc(p.name.split(' ')[0]) + ': ' + (f >= R.foulOut ? 'FOULED OUT' : f + ' fouls') + '</span>');
+  });
+  oppPlayerList(t.game.oppRoster, t.box).forEach(p => {
+    const f = n0((t.box[p.id] || {}).PF);
+    if (p.id !== 'opp:team' && f >= R.foulOut - 1) items.push('<span class="alert muted-alert">Opp #' + esc(p.number) + ': ' + (f >= R.foulOut ? 'fouled out' : f + ' fouls') + '</span>');
+  });
+  return items.length ? '<div class="alerts">' + items.join('') + '</div>' : '';
+}
+function liveNote() {
+  const t = S.t;
+  if (t.mode || t.game.status !== 'live') return '';
+  return '<p class="muted small live-note"><span class="live-dot"></span> Live: updates automatically' + (t.lastSync ? ' · last update ' + new Date(t.lastSync).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : '') + '</p>';
+}
+
+function endGameButton() {
+  const t = S.t;
+  if (t.mode || !t.canTrack) return '';
+  if (t.game.status === 'final') return '<div class="card small muted" style="text-align:center">This game is final.' + (can('manage') ? ' You can still fix numbers.' : '') + '</div>';
+  return '<button class="btn danger big end-game" data-act="endGame">' + (can('manage') ? 'End game (mark final)' : 'Game over: submit final stats') + '</button>';
+}
+
+const MARKER_STATS = ['TMO_US', 'TMO_OPP', 'EOQ'];
+function playRow(p) {
+  const marker = p.events[0] && MARKER_STATS.indexOf(p.events[0].stat) >= 0;
+  const who = p.playerId ? anyLabel(p.playerId) : (p.events[0] && p.events[0].stat === 'OPP' ? g_opp() : 'Team');
+  return '<div class="list-item ' + (p.undone ? 'undone' : '') + '"><div class="grow">' + (marker ? '<b>' + esc(p.label) + '</b>' : '<b>' + esc(who) + '</b> · ' + esc(p.label)) +
+    '<div class="muted small">' + (p.events[0] && p.events[0].period && !S.t.mode ? periodLabel(p.events[0].period) + ' · ' : '') + esc(new Date(p.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) + '</div></div>' +
+    (p.undone ? '<span class="muted small">undone</span>' : '<button class="btn sm" data-act="undo" data-id="' + esc(p.id) + '">Undo</button>') + '</div>';
+}
+
+// Every play entered on this phone for this game, newest first, grouped by quarter.
+function playsModal() {
+  const t = S.t;
+  // One group per quarter, latest quarter first; plays newest first inside each.
+  const byPer = {};
+  t.plays.forEach(p => {
+    const per = t.mode ? 0 : ((p.events[0] && p.events[0].period) || 0);
+    (byPer[per] = byPer[per] || []).push(p);
+  });
+  const groups = Object.keys(byPer).map(Number).sort((a, b) => (b || -1) - (a || -1))
+    .map(n => ({ label: t.mode ? 'Plays' : (n ? periodLabel(n) : 'No quarter'), plays: byPer[n] }));
+  const live = t.plays.filter(p => !p.undone).length;
+  openModal('<h2>All plays</h2><p class="muted small" style="margin-top:4px">' + live + ' play' + (live === 1 ? '' : 's') + ' entered on this phone, newest first. Undo any of them; it comes off the quarter it happened in.</p>' +
+    (groups.length ? groups.map(g => '<div class="section-title">' + esc(g.label) + '</div><div class="plays">' + g.plays.map(playRow).join('') + '</div>').join('') : '<div class="empty">No plays yet.</div>') +
+    '<div class="form-actions"><button class="btn primary" data-act="closeModal">Done</button></div>', { plays: true });
+}
+
+function viewTracker() {
+  const t = S.t;
+  const ps = onCourtPlayers();
+  const personal = isPersonal();
+  const sel = t.sel && findAnyPlayer(t.sel);
+  const armed = t.armed && TAPS[t.armed];
+  let hint;
+  if (sel) hint = '<b>' + esc(anyLabel(sel.id)) + '</b>: tap a stat';
+  else if (armed) hint = '<b>' + esc(armed.label) + '</b>: tap the player';
+  else hint = 'Tap a player, then a stat';
+  const tiles = ps.map(p => {
+    const l = line(t.box[p.id]);
+    const fc = l.PF >= rules().foulOut ? 'foul5' : l.PF >= rules().foulOut - 1 ? 'foul4' : '';
+    return '<button class="pbtn ' + (p.id === t.sel ? 'sel' : '') + '" data-act="pickPlayer" data-id="' + esc(p.id) + '">' +
+      '<div class="n">' + (p.number !== '' ? '#' + esc(p.number) : '–') + '</div>' +
+      '<div class="nm">' + esc(p.name) + '</div>' +
+      '<div class="ln">' + l.pts + ' pts · <span class="' + fc + '">' + l.PF + ' F</span></div></button>';
+  }).join('');
+  // Only the stat buttons this person is allowed to enter.
+  const ok = code => canTrackGroup(TAP_GROUP[code]);
+  // Stat pad: big shot buttons left/right, small buttons in the middle, FOUL across the bottom.
+  const big = (act, code, cls, side, top, bottom, armedCls) => ok(code)
+    ? '<button class="big ' + cls + ' ' + side + (armedCls ? ' armed' : '') + (act === 'stat' ? ' sbtn' : ' obtn') + '" data-act="' + act + '" data-code="' + code + '"><b>' + top + '</b>' + bottom + '</button>' : '';
+  const small = (act, code, label, cls, armedCls) => ok(code)
+    ? '<button class="sm ' + (cls || '') + (armedCls ? ' armed' : '') + (act === 'stat' ? ' sbtn' : ' obtn') + '" data-act="' + act + '" data-code="' + code + '">' + label + '</button>' : '';
+  const padHtml = (act, smalls, foul) => {
+    const A = c => act === 'stat' && t.armed === c;
+    const html = big(act, '2M', 'g2m', 'c-left', '+2', 'PT FG', A('2M')) + big(act, '3M', 'g3m', 'c-right', '+3', 'PT FG', A('3M')) +
+      big(act, '2X', 'g2x', 'c-left', '2PT', 'Miss', A('2X')) + big(act, '3X', 'g3x', 'c-right', '3PT', 'Miss', A('3X')) +
+      smalls.map(x => small(act, x[0], x[1], x[2], A(x[0]))).join('') + (foul ? small(act, 'PF', 'FOUL', 'foul', A('PF')) : '');
+    return html;
+  };
+  const usSmalls = [['FM', 'FT ✓', 'ft'], ['FX', 'FT ✗', 'ft'], ['OREB', 'O-REB'], ['DREB', 'D-REB'], ['AST', 'AST'], ['STL', 'STL'], ['TO', 'TO'], ['BLK', 'BLK']];
+  const usHtml = padHtml('stat', usSmalls, true);
+  const usCount = ['2M', '2X', '3M', '3X', 'FM', 'FX', 'OREB', 'DREB', 'AST', 'STL', 'TO', 'BLK', 'PF'].filter(ok).length;
+  const limited = usCount < 13;
+  const usPad = (limited ? '<p class="muted small" style="text-align:center;margin:10px 0 0">You\'re entering: <b>' + esc(TRACK_GROUP_KEYS.filter(canTrackGroup).filter(g => g !== 'opp').map(groupName).join(', ') || 'no stats') + '</b></p>' : '') +
+    (usCount ? '<div class="spad">' + usHtml + '</div>' : '<div class="card empty">The coach hasn\'t given you any stats to enter.</div>');
+  const usPanel = '<div class="panel us"><div class="panel-head"><h2>' + esc(shortTeam()) + '</h2></div>' +
+    '<div class="hint">' + hint + '</div>' +
+    (ps.length ? '<div class="players">' + tiles + '</div>' : '<div class="card empty">No players on the roster yet.</div>') +
+    usPad + '</div>';
+  let oppPanel = '';
+  if (!personal && canTrackGroup('opp')) {
+    const oppSel = t.oppSel || 'opp:team';
+    const opts = '<option value="opp:team"' + (oppSel === 'opp:team' ? ' selected' : '') + '>Team</option>' +
+      oppPlayerList(t.game.oppRoster, t.box).filter(p => p.id !== 'opp:team').map(p => '<option value="' + esc(p.id) + '"' + (p.id === oppSel ? ' selected' : '') + '>#' + esc(p.number) + (p.name ? ' ' + esc(p.name) : '') + '</option>').join('') +
+      '<option value="__add">Add numbers…</option>';
+    const oppSmalls = [['FM', 'FT ✓', 'ft'], ['FX', 'FT ✗', 'ft'], ['REB', 'REB'], ['TO', 'TO'], ['STL', 'STL'], ['BLK', 'BLK'], ['AST', 'AST'], ['PF', 'FOUL']];
+    oppPanel = '<div class="panel opp"><div class="panel-head"><h2>' + esc(t.game.opponent) + '</h2>' +
+      '<label>Player <select data-oppsel aria-label="Opponent player">' + opts + '</select></label></div>' +
+      '<div class="spad">' + padHtml('oppStat', oppSmalls, false) + '</div></div>';
+  }
+  const plays = t.plays.slice(0, 6);
+  const playsHtml = plays.length ? plays.map(playRow).join('') +
+    '<button class="btn big" style="margin-top:10px" data-act="allPlays">All plays this game (' + t.plays.length + ')</button>'
+    : '<div class="muted small" style="padding:8px 0">Plays you enter will show here so you can undo mistakes.</div>';
+  return foulAlerts() + usPanel + oppPanel +
+    '<div class="row" style="margin-top:12px"><button class="btn sm" data-act="whosHere">Who\'s playing?</button><span class="spacer"></span>' +
+    (t.sel || t.armed ? '<button class="btn sm" data-act="clearSel">Cancel selection</button>' : '') + '</div>' +
+    '<div class="card plays"><h2>Recent plays</h2>' + playsHtml + '</div>' +
+    endGameButton();
+}
+// "Providence Classical Academy" → "Providence" for tight spots like the timeout buttons.
+function shortOpp() { const o = S.t ? String(S.t.game.opponent) : 'Opponent'; return o.length <= 12 ? o : (o.split(/\s+/)[0] || o).slice(0, 14); }
+function shortTeam() { return S.teamName.length <= 12 ? S.teamName : (S.teamName.split(/\s+/)[0] || 'Us').slice(0, 14); }
+function g_opp() { return S.t ? S.t.game.opponent : 'Opponent'; }
+
+function boxTable(players, box, clickable, opp) {
+  const rows = players.filter(p => played(box[p.id]));
+  if (!opp) rows.sort(byNumber);
+  let tot = {};
+  const tr = rows.map(p => {
+    const s = box[p.id] || {};
+    tot = addLine(tot, s);
+    const l = line(s);
+    return '<tr class="' + (clickable ? 'click' : '') + '" ' + (clickable ? 'data-act="editLine" data-id="' + esc(p.id) + '"' : '') + '>' +
+      '<td><span class="pnum">' + (p.number !== '' ? '#' + esc(p.number) : '') + '</span><span class="pname">' + esc(p.id === 'opp:team' ? 'Team / unknown #' : p.name) + '</span></td>' +
+      boxCells(l) + '</tr>';
+  }).join('');
+  const lt = line(tot);
+  return '<div class="table-wrap"><table><thead><tr><th>Player</th>' + boxHead() + '</tr></thead><tbody>' +
+    (tr || '<tr><td colspan="12" class="muted" style="text-align:center;position:static">No stats yet</td></tr>') +
+    (rows.length ? '<tr class="total"><td>Team</td>' + boxCells(lt) + '</tr>' : '') +
+    '</tbody></table></div>';
+}
+// Box score columns, each tied to a stat group so people only see what the coach allows.
+const BOX_COLS = [
+  ['PTS', 'scoring', l => '<b>' + l.pts + '</b>'], ['FG', 'scoring', l => l.fgm + '-' + l.fga], ['FG%', 'scoring', l => pct(l.fgm, l.fga)],
+  ['3P', 'scoring', l => l.FG3M + '-' + l.FG3A], ['FT', 'scoring', l => l.FTM + '-' + l.FTA],
+  ['REB', 'reb', l => l.REB], ['OR', 'reb', l => l.OREB], ['DR', 'reb', l => l.DREB], ['AST', 'ast', l => l.AST], ['STL', 'stl', l => l.STL], ['BLK', 'blk', l => l.BLK], ['TO', 'to', l => l.TO], ['PF', 'pf', l => l.PF],
+];
+const boxCols = () => BOX_COLS.filter(c => canSeeGroup(c[1]));
+function boxHead() { return boxCols().map(c => '<th>' + c[0] + '</th>').join(''); }
+function boxCells(l) { return boxCols().map(c => '<td>' + c[2](l) + '</td>').join(''); }
+// Stat tiles (PPG, RPG…) filtered the same way.
+function statTiles(l, gp, which) {
+  const all = { PPG: ['scoring', () => avg(l.pts, gp)], RPG: ['reb', () => avg(l.REB, gp)], APG: ['ast', () => avg(l.AST, gp)], SPG: ['stl', () => avg(l.STL, gp)],
+    'FG%': ['scoring', () => pct(l.fgm, l.fga)], '3P%': ['scoring', () => pct(l.FG3M, l.FG3A)], 'FT%': ['scoring', () => pct(l.FTM, l.FTA)], 'TO/G': ['to', () => avg(l.TO, gp)] };
+  return which.filter(k => canSeeGroup(all[k][0])).map(k => '<div class="tile"><div class="label">' + k + '</div><div class="value">' + all[k][1]() + '</div></div>').join('');
+}
+
+function viewPersonalBox() {
+  const t = S.t, g = t.game;
+  return '<div class="card"><div class="row"><h2 class="grow" style="flex:1">' + esc(fmtDate(g.date)) + '</h2>' + statusChip(g.status) + '</div>' +
+    '<p class="muted small" style="margin:0 0 8px">Your own numbers. Tap a player to fix them.</p>' +
+    boxTable(t.players, t.box, true) +
+    '</div><div class="card small">This record goes to the coach to compare with the official stats. There\'s nothing to submit. You can come back and fix it until the game is final.</div>';
+}
+
+// Coach: each player-parent's record next to the official numbers.
+function parentBooksCard() {
+  const t = S.t;
+  if (!t.parentBooks || !t.parentBooks.length) return '';
+  const cols = l => [l.pts, l.fgm + '-' + l.fga, l.FG3M + '-' + l.FG3A, l.FTM + '-' + l.FTA, l.REB, l.AST, l.STL, l.BLK, l.TO, l.PF];
+  const head = '<tr><th>Player</th><th>By</th><th>PTS</th><th>FG</th><th>3P</th><th>FT</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TO</th><th>PF</th></tr>';
+  const rows = [];
+  t.parentBooks.forEach(b => {
+    Object.keys(b.box).forEach(pid => {
+      if (!hasAny(b.box[pid])) return;
+      const p = t.players.find(x => x.id === pid) || { number: '', name: 'Player' };
+      const off = cols(line(t.box[pid])), mine = cols(line(b.box[pid]));
+      rows.push('<tr><td rowspan="2"><span class="pnum">' + (p.number !== '' ? '#' + esc(p.number) : '') + '</span><span class="pname">' + esc(p.name) + '</span></td><td class="muted">Official</td>' +
+        off.map(v => '<td>' + v + '</td>').join('') + '</tr>' +
+        '<tr class="book-row"><td class="muted">' + esc(b.name.split(' ')[0]) + '</td>' + mine.map((v, i) => '<td class="' + (String(v) !== String(off[i]) ? 'diff' : '') + '">' + v + '</td>').join('') + '</tr>');
+    });
+  });
+  if (!rows.length) return '';
+  return '<div class="card"><h2>Parent records</h2><p class="muted small" style="margin-top:0">Numbers kept separately by parents assigned to specific players. Highlighted cells differ from the official stats. These never change the official stats.</p>' +
+    '<div class="table-wrap"><table class="compare"><thead>' + head + '</thead><tbody>' + rows.join('') + '</tbody></table></div></div>';
+}
+
+function viewGameBox(coach) {
+  const t = S.t, g = t.game;
+  if (isPersonal()) return viewPersonalBox();
+  const unplayed = t.canFix && (!t.boxFilter || t.boxFilter === 'all') ? gamePlayers().filter(p => !played(t.box[p.id])) : [];
+  const opps = oppPlayerList(g.oppRoster, t.box);
+  const fb = filteredBox();
+  const quick = n0(fb[TEAM] && fb[TEAM].OPP);
+  const oppBox = filteredBox(), oppWhole = !t.boxFilter || t.boxFilter === 'all';
+  const oppCard = (hasOppStats(oppBox) || (oppWhole && t.canFix && (g.oppRoster || []).length))
+    ? '<div class="card"><h2>' + esc(g.opponent) + (oppWhole ? '' : ' · ' + (t.boxFilter === 'ot' ? 'OT' : periodLabel(Number(t.boxFilter)))) + '</h2>' + boxTable(opps, oppBox, t.canFix && oppWhole, true) +
+      (quick ? '<p class="muted small">Plus ' + quick + ' point' + (quick === 1 ? '' : 's') + ' from the quick +1/+2/+3 buttons.</p>' : '') +
+      (t.canFix ? '<div class="row wrap-row" style="margin-top:8px">' + opps.filter(p => !hasAny(t.box[p.id])).map(p => '<button class="btn sm" data-act="editLine" data-id="' + esc(p.id) + '">' + esc(p.number !== '' ? '#' + p.number : 'Team') + '</button>').join('') + '</div>' : '') +
+      '</div>'
+    : '';
+  let statusHtml;
+  if (!t.canTrack) {
+    statusHtml = '';
+  } else if (coach) {
+    statusHtml = (g.status !== 'final' ? endGameButton() + '<p class="muted small">Or set the status directly:</p>' : '') +
+      '<div class="row wrap-row"><span class="muted small">Status</span><div class="seg">' +
+      ['scheduled', 'live', 'final'].map(s => '<button class="' + (g.status === s ? 'on' : '') + '" data-act="setStatus" data-s="' + s + '">' + (s === 'scheduled' ? 'Upcoming' : s[0].toUpperCase() + s.slice(1)) + '</button>').join('') + '</div></div>';
+  } else {
+    statusHtml = '<button class="btn primary big" data-act="endGame">Game over: submit final stats</button>' +
+      '<p class="muted small">After you submit, the stats go to the coach and this game closes on your phone.</p>';
+  }
+  const whole = !t.boxFilter || t.boxFilter === 'all';
+  const shown = filteredBox();
+  return '<div class="card"><div class="row"><h2 class="grow" style="flex:1">' + esc(fmtDate(g.date)) + '</h2>' + statusChip(g.status) + '</div>' +
+    liveNote() + foulAlerts() + boxFilterBar() +
+    (whole ? (t.canFix ? '<p class="muted small" style="margin:0 0 8px">Tap a player to fix their numbers.</p>' : '')
+      : '<p class="muted small" style="margin:0 0 8px">Showing ' + (t.boxFilter === 'ot' ? 'overtime' : periodLabel(Number(t.boxFilter))) + ' only (' + shortTeam() + ' ' + teamPts(shown) + ', ' + esc(g.opponent) + ' ' + oppPts(shown) + '). Tap Game to fix numbers.</p>') +
+    boxTable(t.players, shown, t.canFix && whole) +
+    (unplayed.length ? '<div class="row wrap-row" style="margin-top:12px"><span class="muted small">Add a player:</span>' + unplayed.map(p => '<button class="btn sm" data-act="editLine" data-id="' + esc(p.id) + '">' + esc(playerLabel(p)) + '</button>').join('') + '</div>' : '') +
+    '</div>' + quarterCard() + oppCard + parentBooksCard() + (statusHtml ? '<div class="card">' + statusHtml + '</div>' : '') +
+    (S.me.role === 'coach' ? '<button class="btn big" style="margin-top:12px" data-act="printBox">🖨 Printable box score</button>' : '');
+}
+
+// ---------------------------------------------------------------------------
+// Printable box score (coach only): a clean black-and-white page to print or save as PDF.
+// ---------------------------------------------------------------------------
+function printTable(title, players, box, extraCols) {
+  const cols = [['PTS', l => l.pts], ['FG', l => l.fgm + '-' + l.fga], ['FG%', l => pct(l.fgm, l.fga)], ['3P', l => l.FG3M + '-' + l.FG3A],
+    ['FT', l => l.FTM + '-' + l.FTA], ['OR', l => l.OREB], ['DR', l => l.DREB], ['REB', l => l.REB], ['AST', l => l.AST], ['STL', l => l.STL],
+    ['BLK', l => l.BLK], ['TO', l => l.TO], ['PF', l => l.PF]].concat(extraCols || []);
+  const rows = players.filter(p => played(box[p.id]));
+  let tot = {};
+  const body = rows.map(p => {
+    tot = addLine(tot, box[p.id]);
+    const l = line(box[p.id]);
+    l.id = p.id;
+    return '<tr><td class="num">' + esc(p.number) + '</td><td class="name">' + esc(p.id === 'opp:team' ? 'Team / unknown #' : p.name) + '</td>' + cols.map(c => '<td>' + c[1](l) + '</td>').join('') + '</tr>';
+  }).join('');
+  const lt = line(tot);
+  lt.id = '_total';
+  return '<h3>' + esc(title) + '</h3><div class="table-scroll"><table class="pt"><thead><tr><th>#</th><th class="name">Player</th>' + cols.map(c => '<th>' + c[0] + '</th>').join('') + '</tr></thead><tbody>' +
+    (body || '<tr><td colspan="' + (cols.length + 2) + '">No stats</td></tr>') +
+    (rows.length ? '<tr class="tot"><td></td><td class="name">Totals</td>' + cols.map(c => '<td>' + c[1](lt) + '</td>').join('') + '</tr>' : '') + '</tbody></table></div>';
+}
+
+function printBox() {
+  const t = S.t, g = t.game;
+  const us = teamPts(t.box), them = oppPts(t.box);
+  const ns = Object.keys(t.periods || {}).map(Number).filter(n => n > 0);
+  for (let n = 1; n <= 4; n++) if (ns.indexOf(n) < 0) ns.push(n);
+  ns.sort((a, b) => a - b);
+  const hasQ = Object.keys(t.periods || {}).length > 0;
+  const q = (n, k) => n0(((t.periods || {})[n] || {})[k]);
+  const quarters = hasQ ? '<table class="pt quarters"><thead><tr><th class="name">Team</th>' + ns.map(n => '<th>' + periodLabel(n) + '</th>').join('') + '<th>Final</th></tr></thead><tbody>' +
+    '<tr><td class="name">' + esc(S.teamName) + '</td>' + ns.map(n => '<td>' + q(n, 'us') + '</td>').join('') + '<td><b>' + us + '</b></td></tr>' +
+    '<tr><td class="name">' + esc(g.opponent) + '</td>' + ns.map(n => '<td>' + q(n, 'opp') + '</td>').join('') + '<td><b>' + them + '</b></td></tr></tbody></table>' : '';
+  const extra = typeof flowCols === 'function' ? flowCols(t) : [];
+  const opps = oppPlayerList(g.oppRoster, t.box);
+  const result = g.status === 'final' ? (us > them ? 'W' : us < them ? 'L' : 'T') + ' ' : '';
+  $('#print-root').innerHTML = '<div class="print-page">' +
+    '<div class="print-actions"><button class="btn primary" data-act="doPrint">Print / Save as PDF</button><button class="btn" data-act="closePrint">Close</button></div>' +
+    '<h1>' + esc(S.teamName) + ' ' + us + ', ' + esc(g.opponent) + ' ' + them + '</h1>' +
+    '<p class="meta">' + esc(result) + esc(fmtDate(g.date)) + ' · ' + esc(g.location === 'away' ? 'Away' : g.location === 'neutral' ? 'Neutral site' : 'Home') +
+    (g.status === 'final' ? ' · Final' : ' · In progress') + (S.data && S.data.settings.season ? ' · ' + esc(S.data.settings.season) + ' season' : '') + '</p>' +
+    quarters +
+    printTable(S.teamName, gamePlayers(), t.box, extra) +
+    (hasOppStats(t.box) ? printTable(g.opponent, opps, t.box) : '') +
+    (n0(t.box[TEAM] && t.box[TEAM].OPP) ? '<p class="meta">' + esc(g.opponent) + ' points not credited to a player: ' + n0(t.box[TEAM].OPP) + '</p>' : '') +
+    '<p class="meta foot">OR/DR = offensive/defensive rebounds. Printed ' + esc(new Date().toLocaleString()) + '.</p></div>';
+  document.body.classList.add('show-print');
+  window.scrollTo(0, 0);
+}
+
+function quarterCard() {
+  const t = S.t;
+  const ns = Object.keys(t.periods || {}).map(Number).filter(n => n > 0).sort((a, b) => a - b);
+  if (!ns.length) return '';
+  for (let n = 1; n <= 4; n++) if (ns.indexOf(n) < 0) ns.push(n);
+  ns.sort((a, b) => a - b);
+  const cell = (n, k) => n0(((t.periods || {})[n] || {})[k]);
+  const row = (label, k, total) => '<tr><td>' + esc(label) + '</td>' + ns.map(n => '<td>' + cell(n, k) + '</td>').join('') + '<td><b>' + total + '</b></td></tr>';
+  const pts = canSeeGroup('scoring'), fouls = canSeeGroup('pf');
+  if (!pts && !fouls) return '';
+  return '<div class="card"><h2>By quarter</h2><div class="table-wrap"><table>' +
+    (pts ? '<thead><tr><th>Points</th>' + ns.map(n => '<th>' + periodLabel(n) + '</th>').join('') + '<th>Total</th></tr></thead><tbody>' +
+      row(shortTeam(), 'us', teamPts(t.box)) + row(t.game.opponent, 'opp', oppPts(t.box)) + '</tbody>' : '') +
+    (fouls ? '<thead><tr><th>Team fouls</th>' + ns.map(n => '<th>' + periodLabel(n) + '</th>').join('') + '<th></th></tr></thead><tbody>' +
+      row(shortTeam(), 'usPF', '') + row(t.game.opponent, 'oppPF', '') + '</tbody>' : '') +
+    '</table></div>' +
+    (pts && Object.keys(t.box).some(k => k !== TEAM && hasAny(t.box[k])) && ns.reduce((a, n) => a + cell(n, 'us'), 0) !== teamPts(t.box)
+      ? '<p class="muted small">Some points were entered before quarters were tracked, so quarters may not add up to the total.</p>' : '') + '</div>';
+}
+
+// ---------------------------------------------------------------------------
+// Coach
+// ---------------------------------------------------------------------------
+function coachTabList() {
+  const tabs = [['season', 'Season'], ['results', 'Results'], ['games', 'Games']];
+  if (can('manage')) tabs.push(['roster', 'Roster']);
+  if (S.me.role === 'coach') tabs.push(['parents', 'Access'], ['settings', '⚙ Settings']);
+  return tabs;
+}
+function coachTabs() {
+  const tabs = coachTabList();
+  return '<div class="tabs">' + tabs.map(([k, l]) => '<button class="' + (S.tab === k ? 'on' : '') + '" data-act="tab" data-tab="' + k + '">' + l + '</button>').join('') + '</div>';
+}
+function viewCoach() {
+  const right = '<button class="link" data-act="refresh">Refresh</button>' +
+    (S.me.role === 'coach' ? '<button class="link gear" data-act="tab" data-tab="settings" aria-label="Settings" title="Settings">⚙</button>' : '') +
+    '<button class="link" data-act="logout">Sign out</button>';
+  let body;
+  if (S.tab === 'season') body = viewSeason();
+  else if (S.tab === 'results') body = viewResults();
+  else if (S.tab === 'games') body = viewGames();
+  else if (S.tab === 'roster' && can('manage')) body = viewRoster();
+  else if (S.tab === 'parents' && S.me.role === 'coach') body = viewParents();
+  else if (S.tab === 'settings' && S.me.role === 'coach') body = viewSettings();
+  else body = viewSeason();
+  const title = S.me.role === 'coach' ? S.teamName : S.teamName + ' · ' + S.me.name;
+  return topBar(title, '', right, coachTabs()) + '<div class="wrap">' + body + '</div>';
+}
+
+function gamesWithStats() {
+  const d = S.data;
+  return d.games.filter(g => d.boxes[g.id] && Object.keys(d.boxes[g.id]).some(k => k !== TEAM && !isOpp(k) && played(d.boxes[g.id][k])))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function seasonTable() {
+  const d = S.data;
+  const games = gamesWithStats();
+  return d.players.map(p => {
+    let tot = {}, gp = 0;
+    games.forEach(g => {
+      const s = d.boxes[g.id][p.id];
+      if (played(s)) { gp++; tot = addLine(tot, s); }
+    });
+    return { p: p, gp: gp, l: line(tot) };
+  }).filter(r => r.gp || r.p.active);
+}
+
+function teamRecord() {
+  const d = S.data;
+  let w = 0, l = 0, pf = 0, pa = 0, n = 0;
+  d.games.filter(g => g.status === 'final').forEach(g => {
+    const box = d.boxes[g.id] || {};
+    const us = teamPts(box), them = oppPts(box);
+    pf += us; pa += them; n++;
+    if (us > them) w++; else if (us < them) l++;
+  });
+  return { w: w, l: l, ppg: n ? (pf / n).toFixed(1) : '–', oppg: n ? (pa / n).toFixed(1) : '–', n: n };
+}
+
+const SEASON_COLS = [
+  { k: 'gp', l: 'GP', v: r => r.gp, raw: true },
+  { k: 'pts', g: 'scoring', l: 'PTS', v: r => r.l.pts },
+  { k: 'reb', g: 'reb', l: 'REB', v: r => r.l.REB },
+  { k: 'oreb', g: 'reb', l: 'OREB', v: r => r.l.OREB },
+  { k: 'dreb', g: 'reb', l: 'DREB', v: r => r.l.DREB },
+  { k: 'ast', g: 'ast', l: 'AST', v: r => r.l.AST },
+  { k: 'stl', g: 'stl', l: 'STL', v: r => r.l.STL },
+  { k: 'blk', g: 'blk', l: 'BLK', v: r => r.l.BLK },
+  { k: 'to', g: 'to', l: 'TO', v: r => r.l.TO },
+  { k: 'fg', g: 'scoring', l: 'FG', v: r => r.l.fgm, pair: r => [r.l.fgm, r.l.fga] },
+  { k: 'fgp', g: 'scoring', l: 'FG%', v: r => (r.l.fga ? r.l.fgm / r.l.fga : -1), pct: r => pct(r.l.fgm, r.l.fga) },
+  { k: '3p', g: 'scoring', l: '3P', v: r => r.l.FG3M, pair: r => [r.l.FG3M, r.l.FG3A] },
+  { k: '3pp', g: 'scoring', l: '3P%', v: r => (r.l.FG3A ? r.l.FG3M / r.l.FG3A : -1), pct: r => pct(r.l.FG3M, r.l.FG3A) },
+  { k: 'ft', g: 'scoring', l: 'FT', v: r => r.l.FTM, pair: r => [r.l.FTM, r.l.FTA] },
+  { k: 'ftp', g: 'scoring', l: 'FT%', v: r => (r.l.FTA ? r.l.FTM / r.l.FTA : -1), pct: r => pct(r.l.FTM, r.l.FTA) },
+  { k: 'pf', g: 'pf', l: 'PF', v: r => r.l.PF },
+];
+function colText(c, r, perGame) {
+  if (c.pct) return c.pct(r);
+  if (c.raw) return String(c.v(r));
+  if (c.pair) { const [m, a] = c.pair(r); return perGame ? avg(m, r.gp) + '-' + avg(a, r.gp) : m + '-' + a; }
+  return perGame ? avg(c.v(r), r.gp) : String(c.v(r));
+}
+function sortVal(c, r, perGame) {
+  if (c.pct || c.raw) return c.v(r);
+  return perGame ? (r.gp ? c.v(r) / r.gp : -1) : c.v(r);
+}
+
+function viewSeason() {
+  const d = S.data;
+  if (!d.players.length) {
+    return can('manage') ? '<div class="card empty" style="margin-top:16px"><h2>Welcome, Coach!</h2><p>Start by adding your players on the <b>Roster</b> tab, then add parents and games.</p>' +
+      '<button class="btn primary" data-act="tab" data-tab="roster">Add players</button></div>' : '<div class="card empty">No stats yet.</div>';
+  }
+  const rec = teamRecord();
+  const rows = seasonTable();
+  const perGame = S.seasonMode === 'avg';
+  const cols = SEASON_COLS.filter(c => !c.g || canSeeGroup(c.g));
+  const leaders = [['PTS', 'scoring', r => r.l.pts], ['REB', 'reb', r => r.l.REB], ['AST', 'ast', r => r.l.AST], ['STL', 'stl', r => r.l.STL]].filter(x => canSeeGroup(x[1])).map(([lbl, , f]) => {
+    const best = rows.filter(r => r.gp).sort((a, b) => f(b) / b.gp - f(a) / a.gp)[0];
+    return '<div class="tile"><div class="label">' + lbl + ' leader</div><div class="value">' + (best ? avg(f(best), best.gp) : '–') + '</div><div class="sub">' + (best ? esc(playerLabel(best.p)) : 'No games yet') + '</div></div>';
+  }).join('');
+  const col = cols.find(c => c.k === S.sort.key) || cols[1] || cols[0];
+  rows.sort((a, b) => (sortVal(col, a, perGame) - sortVal(col, b, perGame)) * S.sort.dir || byNumber(a.p, b.p));
+  const head = '<tr><th>Player</th>' + cols.map(c => '<th class="sortable ' + (c.k === col.k ? 'sorted' : '') + '" data-act="sort" data-k="' + c.k + '">' + c.l + (c.k === col.k ? (S.sort.dir < 0 ? ' ▾' : ' ▴') : '') + '</th>').join('') + '</tr>';
+  const body = rows.map(r => '<tr class="click" data-act="openPlayer" data-id="' + esc(r.p.id) + '"><td><span class="pnum">' + (r.p.number !== '' ? '#' + esc(r.p.number) : '') + '</span><span class="pname">' + esc(r.p.name) + '</span></td>' +
+    cols.map(c => '<td>' + (c.k === 'pts' ? '<b>' + colText(c, r, perGame) + '</b>' : colText(c, r, perGame)) + '</td>').join('') + '</tr>').join('');
+  const nGames = gamesWithStats().length;
+  return '<div class="tiles">' +
+    (canSeeGroup('scoring') ? '<div class="tile"><div class="label">Record</div><div class="value">' + rec.w + '–' + rec.l + '</div><div class="sub">' + rec.n + ' final game' + (rec.n === 1 ? '' : 's') + '</div></div>' +
+      '<div class="tile"><div class="label">Points / game</div><div class="value">' + rec.ppg + '</div><div class="sub">Allowed ' + rec.oppg + '</div></div>' : '') +
+    leaders + '</div>' +
+    '<div class="card"><div class="row wrap-row" style="margin-bottom:8px"><h2 style="margin:0;flex:1">Player stats</h2>' +
+    '<div class="seg"><button class="' + (perGame ? 'on' : '') + '" data-act="seasonMode" data-m="avg">Per game</button><button class="' + (!perGame ? 'on' : '') + '" data-act="seasonMode" data-m="tot">Totals</button></div></div>' +
+    '<p class="muted small" style="margin:0 0 6px">' + nGames + ' game' + (nGames === 1 ? '' : 's') + ' with stats. Tap a column to sort, or a player to see their game log.</p>' +
+    '<div class="table-wrap"><table><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div></div>' +
+    oppComparison() +
+    (S.me.role !== 'coach' ? '' : '<div class="card"><h2>Google Sheet</h2><p class="muted small" style="margin-top:0">Copy these numbers into <b>Season Stats</b> and <b>Game Log</b> tabs in your spreadsheet to sort, chart, or print.</p>' +
+    '<div class="row wrap-row"><button class="btn primary" data-act="writeReport">Update stats in Google Sheet</button>' +
+    (d.sheetUrl ? '<a class="btn" href="' + esc(d.sheetUrl) + '" target="_blank" rel="noopener">Open spreadsheet</a>' : '') + '</div></div>');
+}
+
+// Us vs. opponents, using only games where opponent stats were tracked.
+function oppComparison() {
+  const d = S.data;
+  const games = gamesWithStats().filter(g => hasOppStats(d.boxes[g.id]));
+  if (!games.length) return '';
+  let us = {}, them = {}, usPts = 0, themPts = 0;
+  games.forEach(g => {
+    const b = d.boxes[g.id];
+    us = addLine(us, sideTotals(b, false)); them = addLine(them, sideTotals(b, true));
+    usPts += teamPts(b); themPts += oppPts(b);
+  });
+  const n = games.length, a = line(us), o = line(them);
+  const rows = [
+    ['Points', avg(usPts, n), avg(themPts, n), 'scoring'],
+    ['FG%', pct(a.fgm, a.fga), pct(o.fgm, o.fga), 'scoring'],
+    ['3P%', pct(a.FG3M, a.FG3A), pct(o.FG3M, o.FG3A), 'scoring'],
+    ['3PM', avg(a.FG3M, n), avg(o.FG3M, n), 'scoring'],
+    ['FT%', pct(a.FTM, a.FTA), pct(o.FTM, o.FTA), 'scoring'],
+    ['FTA', avg(a.FTA, n), avg(o.FTA, n), 'scoring'],
+    ['Rebounds', avg(a.REB, n), avg(o.REB, n), 'reb'],
+    ['Assists', avg(a.AST, n), avg(o.AST, n), 'ast'],
+    ['Steals', avg(a.STL, n), avg(o.STL, n), 'stl'],
+    ['Blocks', avg(a.BLK, n), avg(o.BLK, n), 'blk'],
+    ['Turnovers', avg(a.TO, n), avg(o.TO, n), 'to'],
+    ['Fouls', avg(a.PF, n), avg(o.PF, n), 'pf'],
+  ].filter(r => canSeeGroup(r[3]));
+  if (!rows.length) return '';
+  return '<div class="card"><h2>Us vs. opponents</h2><p class="muted small" style="margin-top:0">Per game, from the ' + n + ' game' + (n === 1 ? '' : 's') + ' where opponent stats were kept.</p>' +
+    '<div class="table-wrap"><table><thead><tr><th>Per game</th><th>' + esc(shortTeam()) + '</th><th>Opponents</th></tr></thead><tbody>' +
+    rows.map(r => '<tr><td>' + r[0] + '</td><td><b>' + r[1] + '</b></td><td>' + r[2] + '</td></tr>').join('') + '</tbody></table></div></div>';
+}
+
+function viewPlayer() {
+  const d = S.data;
+  const p = d.players.find(x => x.id === S.playerId);
+  if (!p) { S.view = 'coach'; return viewCoach(); }
+  const games = gamesWithStats().filter(g => played(d.boxes[g.id][p.id]));
+  let tot = {};
+  games.forEach(g => { tot = addLine(tot, d.boxes[g.id][p.id]); });
+  const l = line(tot), gp = games.length;
+  const tiles = statTiles(l, gp, ['PPG', 'RPG', 'APG', 'SPG', 'FG%', '3P%', 'FT%', 'TO/G']);
+  const rows = games.slice().reverse().map(g => {
+    const gl = line(d.boxes[g.id][p.id]);
+    return '<tr class="click" data-act="openBox" data-id="' + esc(g.id) + '"><td>' + esc(fmtDate(g.date)) + ' <span class="muted">' + esc(gameTitle(g)) + '</span></td>' + boxCells(gl) + '</tr>';
+  }).join('');
+  return topBar(playerLabel(p), '<button class="link" data-act="back">‹ Back</button>', '') +
+    '<div class="wrap"><div class="tiles">' + tiles + '</div>' +
+    trendChart(games.map(g => ({ game: g, l: line(d.boxes[g.id][p.id]) }))) +
+    '<div class="card"><h2>Game log</h2><p class="muted small" style="margin-top:0">' + gp + ' game' + (gp === 1 ? '' : 's') + ' played · ' + l.pts + ' points total</p>' +
+    '<div class="table-wrap"><table><thead><tr><th>Game</th>' + boxHead() + '</tr></thead><tbody>' +
+    (rows || '<tr><td colspan="12" class="muted">No games yet</td></tr>') +
+    (gp ? '<tr class="total"><td>Season</td>' + boxCells(l) + '</tr>' : '') +
+    '</tbody></table></div></div></div>';
+}
+
+function parentName(id) {
+  const p = S.data.parents.find(x => x.id === id);
+  return p ? p.name : '';
+}
+
+function viewGames() {
+  const d = S.data;
+  const grp = groupGames(d.games);
+  const card = (g, primary) => {
+    const box = d.boxes[g.id] || {};
+    const us = teamPts(box), them = oppPts(box);
+    const showScore = canSeeGroup('scoring');
+    const ending = isEnding(g.id);
+    const result = ending ? '<span class="chip">Ending…</span>' : g.status === 'final' && showScore ? (us > them ? '<span class="chip win">W</span>' : us < them ? '<span class="chip loss">L</span>' : '<span class="chip">T</span>') : statusChip(g.status);
+    const scorer = (g.scorerIds || []).map(parentName).filter(Boolean).join(', ');
+    const tag = g.date === todayISO() && grp.today.length === 1 ? '<span class="today-tag">Today\'s game</span>' : '';
+    return '<div class="card"><div class="row"><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:17px">' + tag + esc(gameTitle(g)) + '</div>' +
+      '<div class="muted small">' + esc(fmtDate(g.date)) + ' · Stats: ' + (scorer ? esc(scorer) : '<b>no parent assigned</b>') + '</div>' + (canTrackGame(g) ? readyHtml(g) : '') + '</div>' +
+      '<div style="text-align:right">' + result + (g.status !== 'scheduled' && showScore ? '<div style="font-weight:800;font-size:18px;margin-top:2px">' + us + '–' + them + '</div>' + savedScoreNote(g, us, them) : '') + '</div></div>' +
+      '<div class="row wrap-row" style="margin-top:10px">' +
+      (canTrackGame(g) ? '<button class="btn sm' + (primary ? ' primary' : '') + '" data-act="openGame" data-id="' + esc(g.id) + '">' + (primary ? (g.status === 'live' ? 'Continue tracking' : 'Start tracking') : 'Track') + '</button>' : '') +
+      (g.status !== 'final' && S.me.players && S.me.players.length ? '<button class="btn sm" data-act="openPersonal" data-id="' + esc(g.id) + '">Track my player</button>' : '') +
+      '<button class="btn sm" data-act="openBox" data-id="' + esc(g.id) + '">Box score</button>' +
+      (g.status === 'live' && can('manage') && !ending ? '<button class="btn sm danger" data-act="endGameCard" data-id="' + esc(g.id) + '">End game</button>' : '') +
+      (can('manage') ? '<button class="btn sm" data-act="editGame" data-id="' + esc(g.id) + '">Edit</button>' : '') + '</div></div>';
+  };
+  return (can('manage') ? '<div class="row" style="margin-top:14px"><span class="spacer"></span><button class="btn" data-act="bulkGames">Add many</button><button class="btn primary" data-act="editGame">+ New game</button></div>' : '') +
+    (grp.today.length ? '<div class="section-title">Today</div>' + grp.today.map(g => card(g, true)).join('') : '<div class="section-title">Today</div><div class="card empty">No game scheduled for today.</div>') +
+    '<div class="section-title">Coming up</div>' + (grp.upcoming.length ? grp.upcoming.map(g => card(g, false)).join('') : '<div class="card empty">No upcoming games.</div>') +
+    (grp.past.length ? '<details class="past-games"' + (!grp.today.length && !grp.upcoming.length ? ' open' : '') + '><summary>Past games not ended (' + grp.past.length + ')</summary>' +
+      '<p class="small muted" style="margin:6px 2px 0">' + esc(PAST_NOTE) + '</p>' + grp.past.map(g => card(g, false)).join('') + '</details>' : '') +
+    '<p class="muted small" style="margin-top:12px">Finished games are on the Results tab.</p>';
+}
+
+function viewResults() {
+  const d = S.data;
+  const showScore = canSeeGroup('scoring');
+  const rows = d.games.filter(g => g.status === 'final').sort((a, b) => b.date.localeCompare(a.date)).map(g => {
+    const box = d.boxes[g.id] || {};
+    const us = teamPts(box), them = oppPts(box);
+    return { g: g, us: us, them: them, r: us > them ? 'W' : us < them ? 'L' : 'T' };
+  });
+  if (!rows.length) return '<div class="card empty" style="margin-top:14px">No finished games yet.</div>';
+  const f = S.resultsFilter || 'all';
+  const wins = rows.filter(x => x.r === 'W').length, losses = rows.filter(x => x.r === 'L').length, ties = rows.length - wins - losses;
+  const shown = rows.filter(x => !showScore || f === 'all' || (f === 'wins' ? x.r === 'W' : x.r === 'L'));
+  const summary = showScore ? 'Record ' + wins + '–' + losses + (ties ? '–' + ties : '') : rows.length + ' finished game' + (rows.length === 1 ? '' : 's');
+  const seg = showScore ? '<div class="seg">' + [['all', 'All'], ['wins', 'Wins'], ['losses', 'Losses']].map(([k, l]) =>
+    '<button class="' + (f === k ? 'on' : '') + '" data-act="resultsFilter" data-f="' + k + '">' + l + '</button>').join('') + '</div>' : '';
+  let html = '<div class="row wrap-row" style="margin-top:14px"><div style="font-weight:800;font-size:18px" class="grow">' + summary + '</div>' + seg + '</div>';
+  if (!shown.length) return html + '<div class="card empty">No ' + (f === 'wins' ? 'wins' : 'losses') + ' yet.</div>';
+  let month = '';
+  shown.forEach(x => {
+    const m = /^(\d{4})-(\d{2})/.exec(x.g.date || '');
+    const label = m ? new Date(+m[1], +m[2] - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'Undated';
+    if (label !== month) { month = label; html += '<div class="section-title">' + esc(label) + '</div>'; }
+    const chip = showScore ? '<span class="chip ' + (x.r === 'W' ? 'win' : x.r === 'L' ? 'loss' : '') + '">' + x.r + '</span>' : '<span class="chip final">final</span>';
+    html += '<div class="card click" data-act="openBox" data-id="' + esc(x.g.id) + '" style="cursor:pointer"><div class="row"><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:16px">' + esc(gameTitle(x.g)) + '</div>' +
+      '<div class="muted small">' + esc(fmtDate(x.g.date)) + '</div></div>' +
+      '<div style="text-align:right">' + chip + (showScore ? '<div style="font-weight:800;font-size:18px;margin-top:2px">' + x.us + '–' + x.them + '</div>' + savedScoreNote(x.g, x.us, x.them) : '') + '</div></div></div>';
+  });
+  return html;
+}
+
+function viewRoster() {
+  const d = S.data;
+  const ps = d.players.slice().sort(byNumber);
+  const active = ps.filter(p => p.active), inactive = ps.filter(p => !p.active);
+  const item = p => '<div class="list-item"><div class="jersey ' + (p.active ? '' : 'off') + '">' + esc(p.number || '–') + '</div><div class="grow"><div style="font-weight:600">' + esc(p.name) + '</div>' +
+    (p.active ? '' : '<div class="muted small">Inactive (keeps past stats)</div>') + '</div><button class="btn sm" data-act="editPlayer" data-id="' + esc(p.id) + '">Edit</button></div>';
+  return '<div class="row wrap-row" style="margin-top:14px"><span class="spacer"></span><button class="btn" data-act="bulkPlayers">Add many</button><button class="btn primary" data-act="editPlayer">+ Add player</button></div>' +
+    '<div class="card">' + (active.length ? active.map(item).join('') : '<div class="empty">No players yet.</div>') + '</div>' +
+    (inactive.length ? '<div class="section-title">Inactive</div><div class="card">' + inactive.map(item).join('') + '</div>' : '');
+}
+
+// Coach-only settings: where updates go, game-day reminders, team info.
+function viewSettings() {
+  const d = S.data, st = d.settings;
+  const account = st.coachEmail || 'your Google account';
+  const check = (name, on, title, desc) => '<label class="check choice"><input form="settingsForm" type="checkbox" name="' + name + '"' + (on ? ' checked' : '') + '><span>' + title +
+    (desc ? '<span class="muted small">' + desc + '</span>' : '') + '</span></label>';
+  const num = (name, title, val, min, max, desc) => '<label class="field">' + title + '<input form="settingsForm" name="' + name + '" type="number" inputmode="numeric" min="' + min + '" max="' + max + '" step="1" value="' + esc(val) + '"></label><p class="muted small" style="margin:-4px 0 8px">' + desc + ' (' + min + ' to ' + max + ')</p>';
+  return '<form id="settingsForm" data-form="settings"></form>' +
+    '<div class="section-title">Your email updates</div><div class="card">' +
+    '<label class="field">Your email address for updates<input form="settingsForm" name="notifyEmail" type="email" value="' + esc(st.notifyEmail || '') + '" maxlength="120" placeholder="' + esc(st.coachEmail || 'name@example.com') + '" autocomplete="email"></label>' +
+    '<p class="muted small" style="margin:4px 0 6px">Leave blank to use ' + esc(account) + '.</p>' +
+    check('gameEmails', st.gameEmails !== false, 'Email me when a parent finishes a game', 'Final score, scoring by quarter, and every player\'s line.') +
+    '</div>' +
+    '<div class="section-title">Game-day reminders for parents</div><div class="card">' +
+    check('gameDayEmails', !!st.gameDayEmails, 'Email the assigned parents on game day', 'Their link, PIN, opponent, and quick steps. Only parents with an email on the Access tab get it.') +
+    '<label class="field">Send around<select form="settingsForm" name="gameDayHour">' + [5, 6, 7, 8, 9, 10, 11].map(h => '<option value="' + h + '"' + (h === (st.gameDayHour || 7) ? ' selected' : '') + '>' + h + ' AM</option>').join('') + '</select></label>' +
+    '<button class="btn sm" type="button" data-act="sendGameDayNow" style="margin-top:10px">Send today\'s reminders now</button>' +
+    '<p class="muted small" style="margin:8px 0 0">Text messages aren\'t available: Google can\'t send texts without a paid service.</p>' +
+    '</div>' +
+    '<div class="section-title">Coach PIN</div><div class="card"><form data-form="coachPin" autocomplete="off">' +
+    '<label class="field">Current PIN<input name="current" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></label>' +
+    '<label class="field">New PIN <span class="muted small">(4 to 8 digits, can\'t start with 0)</span><input name="next" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></label>' +
+    '<label class="field">Confirm new PIN<input name="confirm" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></label>' +
+    '<div class="err" data-pin-err></div><button class="btn" type="submit">Change PIN</button></form></div>' +
+    '<div class="section-title">Game rules</div><div class="card">' +
+    num('foulOut', 'Fouls to foul out', st.foulOut, 4, 6, 'A player is fouled out at this many. The warning comes one foul before.') +
+    num('bonusFouls', 'Team fouls for the bonus', st.bonusFouls, 3, 10, 'Per quarter. At this many, the other team is in the bonus.') +
+    num('timeouts', 'Timeouts per game', st.timeouts, 0, 10, 'Shown as "Timeouts left" while tracking. 0 shows a plain count.') +
+    '</div>' +
+    '<div class="section-title">Team</div><div class="card">' +
+    '<label class="field">Team name<input form="settingsForm" name="teamName" value="' + esc(st.teamName) + '" maxlength="60"></label>' +
+    '<label class="field">Season<input form="settingsForm" name="season" value="' + esc(st.season) + '" maxlength="20"></label>' +
+    '<div class="step-label">Team color</div><div class="swatches">' + TEAM_COLORS.map(c =>
+      '<label class="swatch" title="' + c[1] + '"><input form="settingsForm" type="radio" name="color" value="' + c[0] + '"' + (c[0] === (st.color || TEAM_COLORS[0][0]) ? ' checked' : '') + ' aria-label="' + c[1] + '"><span style="background:' + c[0] + '"></span></label>').join('') + '</div>' +
+    '</div>' +
+    '<div class="section-title">App link</div><div class="card">' +
+    (d.appUrl ? '<div class="copybox"><input readonly value="' + esc(d.appUrl) + '" id="appUrl2"><button class="btn sm" type="button" data-act="copyUrl" data-input="appUrl2">Copy</button></div>' : '<p class="muted small">The link appears once the app is published.</p>') +
+    '<p class="muted small" style="margin:8px 0 0">Parents\' PINs are on the Access tab: tap Edit on a person to change theirs.</p>' +
+    '</div>' +
+    '<div class="err" data-settings-err></div><button class="btn primary big" type="submit" form="settingsForm" style="margin-top:12px">Save settings</button>';
+}
+
+// Stat groups the coach can allow per person (same keys as the server's STAT_GROUPS).
+const GROUPS = [
+  ['scoring', 'Points & shooting', '2PT, 3PT, free throws'],
+  ['reb', 'Rebounds'], ['ast', 'Assists'], ['stl', 'Steals'], ['blk', 'Blocks'], ['to', 'Turnovers'], ['pf', 'Fouls'],
+  ['opp', "Opponent's stats & score"],
+];
+const VIEW_GROUP_KEYS = ['scoring', 'reb', 'ast', 'stl', 'blk', 'to', 'pf'];
+const TRACK_GROUP_KEYS = VIEW_GROUP_KEYS.concat(['opp']);
+const groupName = k => (GROUPS.find(g => g[0] === k) || [k, k])[1];
+function groupListText(list, all) {
+  if (!list || list.length === all.length) return 'all stats';
+  if (!list.length) return 'no stats';
+  return list.map(groupName).join(', ');
+}
+// Plain-language lines for the Access list: what they do during games, and what they see after.
+function permSummary(p) {
+  const perms = p.perms || {};
+  if (perms.manage) return ['Assistant coach: edits roster & schedule, tracks any game, sees all stats.'];
+  const players = (p.players || []).map(id => S.data.players.find(x => x.id === id)).filter(Boolean).map(x => x.name.split(' ')[0]);
+  const lines = ['During games: ' + (perms.trackAny ? 'any game' : 'games you assign') + ' · ' + groupListText(perms.trackGroups, TRACK_GROUP_KEYS) +
+    (perms.fixStats ? ' · can fix numbers' : '')];
+  if (players.length) lines.push('Own record of: ' + players.join(', '));
+  const what = groupListText(perms.viewGroups, VIEW_GROUP_KEYS);
+  lines.push('After games: ' + (perms.viewStats ? 'sees whole team (' + what + ')' : perms.viewOwn && players.length ? 'sees ' + players.join(' & ') + ' only (' + what + ')' : 'sees nothing'));
+  return lines;
+}
+function fmtPhone(ph) {
+  const m = /^\+?1?(\d{3})(\d{3})(\d{4})$/.exec(ph || '');
+  return m ? '(' + m[1] + ') ' + m[2] + '-' + m[3] : ph;
+}
+function viewParents() {
+  const d = S.data;
+  const toEmail = d.parents.filter(p => p.active && p.email && !p.invited);
+  const ps = d.parents.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const count = id => d.games.filter(g => (g.scorerIds || []).indexOf(id) >= 0 && g.status !== 'final').length;
+  const item = p => '<div class="list-item"><div class="grow"><div style="font-weight:600">' + esc(p.name) + (p.active ? '' : ' <span class="chip">off</span>') + '</div>' +
+    '<div class="muted small">PIN <span class="pin">' + esc(p.pin) + '</span> · ' + count(p.id) + ' assigned game' + (count(p.id) === 1 ? '' : 's') + '</div>' +
+    permSummary(p).map(l => '<div class="small" style="margin-top:2px">' + esc(l) + '</div>').join('') +
+    '<div class="small" style="margin-top:2px">' + (p.invited ? '<span class="chip win">Invited ' + esc(new Date(p.invited).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })) + '</span>' : '<span class="chip">Not invited yet</span>') +
+    (p.email ? ' <span class="muted">' + esc(p.email) + '</span>' : '') + (p.phone ? ' <span class="muted">' + esc(fmtPhone(p.phone)) + '</span>' : '') + '</div></div>' +
+    '<div class="row" style="flex-direction:column;gap:6px"><button class="btn sm primary" data-act="invite" data-id="' + esc(p.id) + '">Invite</button><button class="btn sm" data-act="editParent" data-id="' + esc(p.id) + '">Edit</button></div></div>';
+  return '<div class="card"><h2>Who can do what</h2>' +
+    '<p class="small" style="margin-top:0"><b>You always see everything.</b> Everyone else gets only what you choose for them:</p>' +
+    '<ul class="small access-help"><li><b>During games:</b> which games they keep stats for, and which stats they enter. While a game is going, they see that game\'s live numbers.</li>' +
+    '<li><b>After games:</b> by default, <b>nothing</b>. You can let them see just their own player, or the whole team, and pick which stats.</li></ul>' +
+    '<p class="small">Tap <b>Edit</b> on a person to change this, or <b>Invite</b> to send them the link and their PIN.</p>' +
+    '<p class="small muted">PINs, phone numbers, emails, and these settings are only ever shown to you.</p>' +
+    (d.appUrl ? '<div class="copybox"><input readonly value="' + esc(d.appUrl) + '" id="appUrl"><button class="btn sm" data-act="copyUrl">Copy link</button></div>' : '') +
+    (/\/dev(\?|$)/.test(d.appUrl || '') ? '<p class="small" style="color:var(--bad,#c0392b)"><b>This is a test link (it ends in /dev).</b> Only you can open it; parents will see "You need access". In Apps Script, use <b>Deploy → Manage deployments</b>, copy the link that ends in <b>/exec</b>, and open the app from that link instead.</p>' : '') + '</div>' +
+    '<div class="row wrap-row" style="margin-top:14px"><span class="spacer"></span>' +
+    (toEmail.length ? '<button class="btn" data-act="emailAll">Email invites (' + toEmail.length + ')</button>' : '') +
+    '<button class="btn primary" data-act="editParent">+ Add person</button></div>' +
+    '<div class="card">' + (ps.length ? ps.map(item).join('') : '<div class="empty">No one yet. Add the parents who will keep stats.</div>') + '</div>';
+}
+
+// ===========================================================================
+// Forms (modals)
+// ===========================================================================
+function playerForm(p) {
+  p = p || { id: '', number: '', name: '', active: true };
+  openModal('<form data-form="player"><h2>' + (p.id ? 'Edit player' : 'Add player') + '</h2>' +
+    '<input type="hidden" name="id" value="' + esc(p.id) + '">' +
+    '<label class="field">Jersey number<input name="number" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="' + esc(p.number) + '" ' + (p.id ? '' : 'autofocus') + '></label>' +
+    '<label class="field">Name<input name="name" maxlength="60" required value="' + esc(p.name) + '"></label>' +
+    (p.id ? '<label class="check"><input type="checkbox" name="active" ' + (p.active ? 'checked' : '') + '> Active on roster</label>' : '') +
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Save</button></div>' +
+    (p.id ? '<button type="button" class="btn danger big" style="margin-top:10px" data-act="deletePlayer" data-id="' + esc(p.id) + '">Remove player</button>' : '') +
+    '</form>');
+}
+
+function gameForm(g) {
+  const d = S.data;
+  g = g || { id: '', date: todayISO(), opponent: '', location: 'home', scorerIds: [], status: 'scheduled', notes: '', oppRoster: [] };
+  const sc = g.scorerIds || [];
+  const parents = d.parents.filter(p => p.active || sc.indexOf(p.id) >= 0);
+  openModal('<form data-form="game"><h2>' + (g.id ? 'Edit game' : 'New game') + '</h2>' +
+    '<input type="hidden" name="id" value="' + esc(g.id) + '"><input type="hidden" name="status" value="' + esc(g.status) + '">' +
+    '<label class="field">Opponent<input name="opponent" maxlength="60" required value="' + esc(g.opponent) + '" ' + (g.id ? '' : 'autofocus') + '></label>' +
+    '<label class="field">Date<input type="date" name="date" required value="' + esc(g.date) + '"></label>' +
+    '<label class="field">Location<select name="location">' + ['home', 'away', 'neutral'].map(l => '<option value="' + l + '" ' + (g.location === l ? 'selected' : '') + '>' + l[0].toUpperCase() + l.slice(1) + '</option>').join('') + '</select></label>' +
+    '<div class="field" style="margin-top:12px"><b>Who keeps stats?</b><p class="muted small" style="margin:2px 0 0">Pick one parent for everything, or several to split the work (each enters the stats you chose for them on the Access tab). Leave all unchecked if you\'re keeping stats yourself.</p>' +
+    '<div class="player-checks">' + parents.map(p => '<label class="check"><input type="checkbox" name="sc" value="' + esc(p.id) + '"' + (sc.indexOf(p.id) >= 0 ? ' checked' : '') + '><span>' + esc(p.name) +
+      '<span class="muted small">' + esc(groupListText((p.perms || {}).trackGroups, TRACK_GROUP_KEYS)) + '</span>' + (p.email ? '' : '<span class="muted small"> (no email)</span>') + '</span></label>').join('') + '</div></div>' +
+    (parents.length ? '' : '<div class="note">Add parents on the Parents tab to assign them games.</div>') +
+    '<label class="field">Opponent jersey numbers <span class="muted small">(optional)</span><textarea name="oppRoster" rows="3" placeholder="4 Smith, 12, 23 Jones">' + esc((g.oppRoster || []).map(p => (p.number + ' ' + p.name).trim()).join(', ')) + '</textarea></label>' +
+    '<label class="field">Notes<input name="notes" maxlength="200" value="' + esc(g.notes) + '" placeholder="Optional"></label>' +
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Save</button></div>' +
+    (g.id ? '<button type="button" class="btn danger big" style="margin-top:10px" data-act="deleteGame" data-id="' + esc(g.id) + '">Delete game and its stats</button>' : '') +
+    '</form>');
+}
+
+function parentForm(p) {
+  p = p || { id: '', name: '', active: true, pin: '', perms: { fixStats: true }, players: [] };
+  const perms = p.perms || {};
+  const mine = p.players || [];
+  const tg = perms.trackGroups || TRACK_GROUP_KEYS, vg = perms.viewGroups || VIEW_GROUP_KEYS;
+  const see = perms.viewStats ? 'team' : perms.viewOwn ? 'own' : 'none';
+  const roster = S.data.players.filter(x => x.active || mine.indexOf(x.id) >= 0).slice().sort(byNumber);
+  const radio = (name, value, checked, title, desc) => '<label class="check choice"><input type="radio" name="' + name + '" value="' + value + '"' + (checked ? ' checked' : '') + '><span>' + title +
+    (desc ? '<span class="muted small">' + desc + '</span>' : '') + '</span></label>';
+  const groupChecks = (name, keys, on) => '<div class="group-checks">' + keys.map(k => {
+    const g = GROUPS.find(x => x[0] === k);
+    return '<label class="check"><input type="checkbox" name="' + name + '" value="' + k + '"' + (on.indexOf(k) >= 0 ? ' checked' : '') + '><span>' + g[1] + (g[2] ? '<span class="muted small">' + g[2] + '</span>' : '') + '</span></label>';
+  }).join('') + '</div><div class="row" style="gap:6px"><button type="button" class="btn sm" data-act="checkAll" data-name="' + name + '" data-on="1">All</button><button type="button" class="btn sm" data-act="checkAll" data-name="' + name + '" data-on="">None</button></div>';
+  openModal('<form data-form="parent"><h2>' + (p.id ? 'Edit person' : 'Add person') + '</h2>' +
+    '<input type="hidden" name="id" value="' + esc(p.id) + '">' +
+    '<label class="field">Name<input name="name" maxlength="60" required value="' + esc(p.name) + '" ' + (p.id ? '' : 'autofocus') + ' placeholder="e.g. Jamie (Ava\'s mom)"></label>' +
+    '<label class="field">Email <span class="muted small">(optional, to email their invite)</span><input type="email" name="email" maxlength="100" value="' + esc(p.email || '') + '" placeholder="name@example.com" autocomplete="off"></label>' +
+    '<label class="field">Cell phone <span class="muted small">(optional, to text their invite)</span><input type="tel" name="phone" maxlength="20" value="' + esc(p.phone || '') + '" placeholder="(555) 123-4567" autocomplete="off"></label>' +
+    '<label class="field">PIN (4–8 digits)' + (p.id ? '' : ' <span class="muted small">(optional, blank makes one for you)</span>') + '<input name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" value="' + esc(p.pin || '') + '"></label>' +
+    (p.id ? '<label class="check"><input type="checkbox" name="newPin"> Give them a new PIN instead (old one stops working)</label>' +
+      '<label class="check"><input type="checkbox" name="active" ' + (p.active ? 'checked' : '') + '> Can sign in</label>' : '') +
+
+    '<div class="access-step"><div class="step-title"><span class="step-num">1</span> During games: what do they track?</div>' +
+    '<div class="step-label">Which games</div>' +
+    radio('games', 'assigned', !perms.trackAny, 'Only games I assign them', 'You pick them on each game (Games tab → Edit).') +
+    radio('games', 'any', !!perms.trackAny, 'Any game that isn\'t over', 'Good for a backup stat keeper.') +
+    '<div class="step-label">Which stats they enter</div>' +
+    '<p class="muted small" style="margin:0">To split a game, assign several parents and give each different stats.</p>' +
+    groupChecks('tg', TRACK_GROUP_KEYS, tg) +
+    '<label class="check choice"><input type="checkbox" name="fixStats"' + (perms.fixStats ? ' checked' : '') + '><span>Can fix numbers in the box score<span class="muted small">Using − / +. Undoing their own taps always works.</span></span></label>' +
+    '<div class="step-label">Their own player(s) (optional)</div>' +
+    '<p class="muted small" style="margin:0">They can keep a separate record of these players at any game. It\'s shown to you for comparison and <b>never changes the official stats</b>.</p>' +
+    '<div class="player-checks">' + roster.map(x => '<label class="check"><input type="checkbox" name="pl" value="' + esc(x.id) + '" ' + (mine.indexOf(x.id) >= 0 ? 'checked' : '') + '> ' + esc(playerLabel(x)) + '</label>').join('') + '</div>' +
+    '</div>' +
+
+    '<div class="access-step"><div class="step-title"><span class="step-num">2</span> After games: what can they see?</div>' +
+    radio('see', 'none', see === 'none', 'Nothing <span class="chip">recommended</span>', 'They enter stats, then the game closes on their phone. Only you see the results.') +
+    radio('see', 'own', see === 'own', 'Only their own player(s)', 'The official stats for the players checked above, nobody else.') +
+    radio('see', 'team', see === 'team', 'The whole team', 'Season stats, player game logs, and every box score (read only).') +
+    '<div class="view-groups"><div class="step-label">Which stats they can see</div>' +
+    groupChecks('vg', VIEW_GROUP_KEYS, vg) + '</div>' +
+    '</div>' +
+
+    '<details class="access-step"' + (perms.manage ? ' open' : '') + '><summary class="step-title" style="cursor:pointer">Advanced</summary>' +
+    '<label class="check choice"><input type="checkbox" name="manage"' + (perms.manage ? ' checked' : '') + '><span>Assistant coach<span class="muted small">Can edit the roster and schedule, assign stat keepers, track or fix any game, and <b>see all stats</b> (this overrides the choices above). Never sees PINs or this screen.</span></span></label>' +
+    '</details>' +
+
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Save</button></div>' +
+    (p.id ? '<button type="button" class="btn danger big" style="margin-top:10px" data-act="deleteParent" data-id="' + esc(p.id) + '">Remove person</button>' : '') +
+    '</form>');
+}
+
+function bulkGamesForm() {
+  openModal('<form data-form="bulkGames"><h2>Add many games</h2>' +
+    '<p class="muted small">One game per line: date, opponent, and optionally home / away / neutral (default home). Notes after a second comma.</p>' +
+    '<label class="field"><textarea name="list" rows="10" placeholder="11/10 Louisiana School for the Deaf, home\n11/12 Georgetown, neutral, Tournament\n12/1 Dodson, away" autofocus></textarea></label>' +
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Add games</button></div></form>');
+}
+
+// "11/10", "11/10/2026", "2026-11-10" → "2026-11-10". Month/day without a year uses the season (Jul–Dec = first year).
+function parseGameDate(text) {
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
+  if (m) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
+  m = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/.exec(text);
+  if (!m) return '';
+  const month = +m[1], day = +m[2];
+  if (month < 1 || month > 12 || day < 1 || day > 31) return '';
+  let year;
+  if (m[3]) year = m[3].length === 2 ? 2000 + +m[3] : +m[3];
+  else {
+    const sm = /^(\d{4})/.exec((S.data && S.data.settings.season) || '');
+    const now = new Date();
+    const start = sm ? +sm[1] : (now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1);
+    year = month >= 7 ? start : start + 1;
+  }
+  return year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+}
+function parseGameLine(lineText) {
+  const parts = lineText.split(',').map(x => x.trim());
+  const first = /^(\S+)\s+(.+)$/.exec(parts[0] || '');
+  if (!first) return null;
+  const date = parseGameDate(first[1]);
+  let opponent = first[2].trim(), location = 'home';
+  if (/^(@|at)\s+/i.test(opponent)) { location = 'away'; opponent = opponent.replace(/^(@|at)\s+/i, ''); }
+  else if (/^vs\.?\s+/i.test(opponent)) opponent = opponent.replace(/^vs\.?\s+/i, '');
+  let rest = parts.slice(1);
+  if (rest.length && /^(home|away|neutral)$/i.test(rest[0])) { location = rest[0].toLowerCase(); rest = rest.slice(1); }
+  return date && opponent ? { date: date, opponent: opponent, location: location, notes: rest.join(', ') } : null;
+}
+
+function bulkForm() {
+  openModal('<form data-form="bulk"><h2>Add many players</h2><p class="muted small">One player per line: jersey number, then name.</p>' +
+    '<label class="field"><textarea name="list" rows="10" placeholder="3 Ava Guard\n23 Ben Center\n5 Chris Wing" autofocus></textarea></label>' +
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Add players</button></div></form>');
+}
+
+// Fix a player's numbers. Changes go into the chosen quarter (or "No quarter"), so by-quarter totals stay right.
+function lineEditor(playerId, scope) {
+  const t = S.t;
+  const p = findAnyPlayer(playerId);
+  if (!p) return;
+  if (scope === undefined) scope = (modalState && modalState.editor === playerId) ? modalState.scope : (t.mode ? 0 : t.period || 1);
+  const game = line(t.box[playerId]);
+  const inScope = scope ? line(((t.periodBoxes || {})[scope] || {})[playerId]) : game;
+  const keys = (isOpp(playerId) ? BASE.filter(k => k !== 'GP') : BASE).filter(k => k === 'GP' || canTrackGroup(STAT_GROUP[k]))
+    .filter(k => k !== 'REB' || line(t.box[playerId]).rebRaw > 0);
+  const warn = [];
+  if (game.FG2M > game.FG2A) warn.push('2PT made is more than attempts');
+  if (game.FG3M > game.FG3A) warn.push('3PT made is more than attempts');
+  if (game.FTM > game.FTA) warn.push('FT made is more than attempts');
+  let scopeBar = '';
+  if (!t.mode) {
+    const maxP = Math.max(4, t.period || 1, ...Object.keys(t.periodBoxes || {}).map(Number));
+    const opts = [];
+    for (let n = 1; n <= maxP; n++) opts.push([n, periodLabel(n)]);
+    opts.push([0, 'None']);
+    scopeBar = '<div class="small" style="font-weight:700;margin-top:10px">Fix which quarter?</div><div class="seg box-filter">' +
+      opts.map(([n, l]) => '<button class="' + (n === scope ? 'on' : '') + '" data-act="editScope" data-id="' + esc(playerId) + '" data-n="' + n + '">' + l + '</button>').join('') + '</div>';
+  }
+  // Steppers change the stored counter itself (REB here = the old unsplit rebounds).
+  const raw = (src, k) => (k === 'REB' ? src.rebRaw : src[k]);
+  const val = k => (k === 'GP' ? game.GP : raw(inScope, k));
+  openModal('<h2>' + esc(isOpp(playerId) ? t.game.opponent + ' ' + anyLabel(playerId).replace('Opp ', '') : playerLabel(p)) + '</h2>' +
+    '<p class="muted small" style="margin-top:4px">' + game.pts + ' points this game. Changes save right away.</p>' +
+    scopeBar +
+    (scope ? '<p class="muted small" style="margin:0 0 4px">Numbers below are for <b>' + periodLabel(scope) + '</b>. Game totals are in grey.</p>'
+      : (t.mode ? '' : '<p class="muted small" style="margin:0 0 4px">Changes count for the game but not toward any quarter.</p>')) +
+    keys.map(k => '<div class="stepper-row"><span class="lbl">' + BASE_LABELS[k] + (scope && k !== 'GP' ? ' <span class="muted small">(game ' + raw(game, k) + ')</span>' : '') + '</span>' +
+      '<button data-act="step" data-id="' + esc(playerId) + '" data-k="' + k + '" data-d="-1" ' + (val(k) > 0 ? '' : 'disabled') + ' aria-label="minus">−</button>' +
+      '<span class="val">' + val(k) + '</span>' +
+      '<button data-act="step" data-id="' + esc(playerId) + '" data-k="' + k + '" data-d="1" ' + (k === 'GP' && game.GP >= 1 ? 'disabled' : '') + ' aria-label="plus">+</button></div>').join('') +
+    (warn.length ? '<div class="note">' + warn.map(esc).join('<br>') + '</div>' : '') +
+    '<div class="form-actions"><button class="btn primary" data-act="closeModal">Done</button></div>', { editor: playerId, scope: scope });
+}
+
+const HELP_STEPS = [
+  ['Open the link and enter your PIN', 'Tip: tap Share → Add to Home Screen so it opens like an app.'],
+  ['Pick your game', '“Start tracking” keeps stats for the whole team. “Track [player]” keeps your own record of your player.'],
+  ['Tap a player, then what happened', 'Green = made shot, red = missed shot. Plus REB, AST, STL, BLK, TO and FOUL.'],
+  ['Made a mistake?', 'Tap UNDO on the pop-up, or Undo next to the play. You can also fix numbers in the Box score.'],
+  ['No signal? Keep going', 'Everything is saved on your phone and sent when you\'re back online. Watch for “All saved”.'],
+  ['When the game ends', 'Team scorers: open Box score and tap “Game over: submit final stats”. Player records need nothing else.'],
+];
+function helpModal() {
+  openModal('<h2>How to keep stats</h2><ol class="help-steps">' + HELP_STEPS.map(([a, b]) => '<li><b>' + a + '</b><span>' + b + '</span></li>').join('') + '</ol>' +
+    '<div class="form-actions"><button class="btn primary" data-act="closeModal">Got it</button></div>');
+}
+function inviteText(p) {
+  const d = S.data;
+  const team = d.settings.teamName;
+  const players = (p.players || []).map(id => d.players.find(x => x.id === id)).filter(Boolean).map(x => x.name.split(' ')[0]);
+  const games = d.games.filter(g => (g.scorerIds || []).indexOf(p.id) >= 0 && g.status !== 'final').sort((a, b) => a.date.localeCompare(b.date));
+  const tg = (p.perms || {}).trackGroups;
+  const limited = tg && tg.length < TRACK_GROUP_KEYS.length;
+  const lines = ['Hi ' + p.name.split(' ')[0] + '! Thanks for helping with ' + team + ' stats.', '', 'App: ' + (d.appUrl || '(link)'), 'Your PIN: ' + p.pin, ''];
+  if (games.length) lines.push('You\'re keeping team stats for: ' + games.slice(0, 3).map(g => fmtDate(g.date) + ' ' + gameTitle(g)).join('; ') + (games.length > 3 ? ' (and more)' : '') + '.');
+  if (players.length) lines.push('You can also keep your own record of ' + players.join(' & ') + ' at any game.');
+  if (limited && tg.length) lines.push('You\'ll be entering: ' + tg.map(groupName).join(', ') + '.');
+  lines.push('', 'How it works:', '1. Open the link and enter your PIN.',
+    '2. Tap ' + (games.length ? '“Start tracking” on your game' : players.length ? '“Track ' + players.join(' & ') + '” on today\'s game' : 'your game') + '.',
+    '3. Tap a player, then what happened (green = made, red = missed).',
+    '4. Mistake? Tap Undo.',
+    games.length ? '5. After the game: Box score → “Game over: submit final stats”.' : '5. That\'s it. Your numbers save automatically.',
+    '', 'Tip: tap Share → Add to Home Screen so it opens like an app.');
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n');
+}
+function inviteModal(p, sent) {
+  if (!p) return;
+  const text = inviteText(p);
+  const sms = 'sms:' + (p.phone || '') + '?&body=' + encodeURIComponent(text);
+  const how = [];
+  if (p.email) how.push('<button class="btn primary" data-act="emailInvite" data-id="' + esc(p.id) + '"' + (sent ? ' disabled' : '') + '>' + (sent ? 'Email sent ✓' : 'Email to ' + esc(p.email)) + '</button>');
+  if (p.phone) how.push('<a class="btn' + (p.email ? '' : ' primary') + '" href="' + esc(sms) + '" target="_blank" rel="noopener">Text to ' + esc(fmtPhone(p.phone)) + '</a>');
+  openModal('<h2>Invite ' + esc(p.name) + '</h2>' +
+    (how.length ? '<div class="invite-actions">' + how.join('') + '</div>' +
+      (p.email ? '<p class="muted small">The email comes from your own Gmail address.</p>' : '') +
+      (p.phone ? '<p class="muted small">Texting opens Messages on this phone with everything filled in. Just tap Send.</p>' : '')
+      : '<div class="note">Add their email or cell number (tap <b>Edit</b>) to send this straight to them. Or copy it below.</div>') +
+    '<label class="field">Message<textarea id="inviteText" rows="10" readonly>' + esc(text) + '</textarea></label>' +
+    '<div class="err"></div>' +
+    '<div class="form-actions"><button class="btn" data-act="closeModal">Close</button><button class="btn" data-act="copyInvite">Copy</button>' +
+    (how.length ? '' : '<a class="btn" href="' + esc(sms) + '" target="_blank" rel="noopener">Text it</a>') + '</div>');
+}
+
+function inviteSubject() { return S.data.settings.teamName + ' stats app: your PIN'; }
+
+function oppRosterForm() {
+  const g = S.t.game;
+  openModal('<form data-form="oppRoster"><h2>' + esc(g.opponent) + ' numbers</h2>' +
+    '<p class="muted small">Jersey numbers, separated by commas or one per line. Names are optional.</p>' +
+    '<label class="field"><textarea name="roster" rows="6" placeholder="4, 10 Smith, 12, 23 Jones" autofocus>' + esc((g.oppRoster || []).map(p => (p.number + ' ' + p.name).trim()).join('\n')) + '</textarea></label>' +
+    '<div class="err"></div><div class="form-actions"><button type="button" class="btn" data-act="closeModal">Cancel</button><button class="btn primary" type="submit">Save</button></div></form>');
+}
+
+function whosHereForm() {
+  const t = S.t;
+  const ps = gamePlayers().filter(p => p.active || played(t.box[p.id]));
+  const none = !ps.some(p => n0((t.box[p.id] || {}).GP) > 0);
+  openModal('<form data-form="whosHere"><h2>Who\'s playing today?</h2><p class="muted small">Uncheck anyone who is absent so their averages stay right.</p>' +
+    ps.map(p => '<label class="check"><input type="checkbox" name="p" value="' + esc(p.id) + '" ' + (none || n0((t.box[p.id] || {}).GP) > 0 ? 'checked' : '') + '> ' + esc(playerLabel(p)) + '</label>').join('') +
+    '<div class="form-actions"><button type="button" class="btn" data-act="closeModal">Later</button><button class="btn primary" type="submit">Done</button></div></form>');
+}
+
+// ===========================================================================
+// Game state helpers
+// ===========================================================================
+function applyEv(box, e) {
+  const k = e.playerId || TEAM;
+  box[k] = box[k] || {};
+  box[k][e.stat] = (box[k][e.stat] || 0) + e.delta;
+}
+const POINTS = { FG2M: 2, FG3M: 3, FTM: 1 };
+// Scoring and team fouls by quarter, kept in step with the box score on this device.
+function applyPeriod(periods, e) {
+  if (!periods || !e.period) return;
+  const q = periods[e.period] || (periods[e.period] = { us: 0, opp: 0, usPF: 0, oppPF: 0 });
+  const opp = e.stat === 'OPP' || isOpp(e.playerId);
+  if (e.stat === 'OPP') q.opp += e.delta;
+  else if (POINTS[e.stat]) q[opp ? 'opp' : 'us'] += POINTS[e.stat] * e.delta;
+  else if (e.stat === 'PF') q[opp ? 'oppPF' : 'usPF'] += e.delta;
+}
+function applyAll(t, e) {
+  applyEv(t.box, e);
+  if (t.mode || !e.period) return;
+  applyPeriod(t.periods, e);
+  t.periodBoxes = t.periodBoxes || {};
+  applyEv(t.periodBoxes[e.period] || (t.periodBoxes[e.period] = {}), e);
+}
+// Box score for the chosen filter: whole game, one quarter, or all overtime periods together.
+function filteredBox() {
+  const t = S.t, f = t.boxFilter || 'all';
+  if (f === 'all' || t.mode) return t.box;
+  const out = {};
+  Object.keys(t.periodBoxes || {}).map(Number).filter(n => (f === 'ot' ? n >= 5 : n === Number(f))).forEach(n => {
+    const b = t.periodBoxes[n];
+    Object.keys(b).forEach(k => { out[k] = addLine(out[k] || {}, b[k]); if (b[k].OPP) out[k].OPP = n0(out[k].OPP) + b[k].OPP; });
+  });
+  return out;
+}
+function boxFilterBar() {
+  const t = S.t;
+  if (t.mode) return '';
+  const ns = Object.keys(t.periodBoxes || {}).map(Number);
+  if (!ns.length) return '';
+  const opts = [['all', 'Game'], ['1', 'Q1'], ['2', 'Q2'], ['3', 'Q3'], ['4', 'Q4']];
+  if (ns.some(n => n >= 5)) opts.push(['ot', 'OT']);
+  const f = t.boxFilter || 'all';
+  return '<div class="seg box-filter">' + opts.map(([k, l]) => '<button class="' + (f === k ? 'on' : '') + '" data-act="boxFilter" data-f="' + k + '">' + l + '</button>').join('') + '</div>';
+}
+function periodLabel(n) { return n <= 4 ? 'Q' + n : (n === 5 ? 'OT' : (n - 4) + 'OT'); }
+// period: omitted = the quarter being tracked now; a number = that quarter; null = no quarter.
+function mkEv(playerId, stat, delta, period) {
+  const p = period === undefined ? (S.t.period || 1) : (period || null);
+  return { id: uid(), gameId: S.t.game.id, mode: S.t.mode || '', playerId: playerId || '', stat: stat, delta: delta, period: p, time: new Date().toISOString() };
+}
+const localKey = (gameId, mode) => gameId + (mode === 'personal' ? '_p' : '');
+// What a server 'game' answer becomes in the tracker, and the copy of it kept on this device.
+function gameFromReply(r, mode) {
+  return { game: r.game, players: r.players, box: r.box || {}, periods: r.periods || {}, periodBoxes: r.periodBoxes || {}, currentPeriod: r.currentPeriod || 0, canTrack: r.canTrack, canFix: r.canFix, mode: mode, parentBooks: r.parentBooks || [] };
+}
+function snapshotOf(t) {
+  return { game: t.game, players: t.players, box: t.box, periods: t.periods, periodBoxes: t.periodBoxes, canTrack: t.canTrack, canFix: t.canFix, mode: t.mode };
+}
+function saveGameLocal() {
+  const t = S.t, k = localKey(t.game.id, t.mode);
+  store.set('gcs_box_' + k, snapshotOf(t));
+  store.set('gcs_period_' + k, t.period);
+  store.set('gcs_plays_' + k, t.plays.slice(0, 400));
+}
+const isPersonal = () => !!S.t && S.t.mode === 'personal';
+function commit(playerId, events, label, quiet) {
+  const t = S.t;
+  events.forEach(e => applyAll(t, e));
+  Queue.push(events);
+  const play = { id: uid(), playerId: playerId || '', label: label, events: events, time: new Date().toISOString(), undone: false };
+  t.plays.unshift(play);
+  saveGameLocal();
+  if (!quiet) {
+    const p = playerId && findAnyPlayer(playerId);
+    const who = !p ? t.game.opponent : isOpp(playerId) ? anyLabel(playerId) : (p.number !== '' ? '#' + p.number : p.name);
+    toast(who + ': ' + label, play.id);
+  }
+  return play;
+}
+function recordTap(code, playerId) {
+  const tap = TAPS[code];
+  if (!tap) return;
+  commit(playerId, tap.ev.map(([stat, d]) => mkEv(playerId, stat, d)), tap.label);
+  S.t.sel = null; S.t.armed = null;
+  render();
+}
+
+// Opponent buttons record at once, to the chosen opponent number (default: the whole team). Our own selection is untouched.
+function recordOppTap(code) {
+  const t = S.t, tap = TAPS[code];
+  if (!tap || !canTrackGroup('opp') || !canTrackGroup(TAP_GROUP[code])) return;
+  const pid = t.oppSel || 'opp:team';
+  commit(pid, tap.ev.map(([stat, d]) => mkEv(pid, stat, d)), tap.label);
+  t.oppSel = 'opp:team';
+  render();
+}
+
+// Questions to ask before stats go into a game that may be the wrong one. Returns false if the person backs out.
+function confirmTrackGame(g) {
+  if (g.date !== todayISO() && !confirm('This game is dated ' + fmtDate(g.date) + ', not today (' + fmtDate(todayISO()) + '). Track this game anyway?')) return false;
+  if (g.status === 'final' && !confirm('This game is already marked final. Add stats to it anyway?')) return false;
+  return true;
+}
+function knownGame(id) {
+  const d = S.data || {};
+  return (d.games || []).concat(d.playerGames || []).find(g => g.id === id) || null;
+}
+
+async function openGame(gameId, tab, mode) {
+  mode = mode === 'personal' ? 'personal' : '';
+  const prevView = S.view;
+  // Tracking the wrong game is easy to do by accident, so check the date and status first when we can.
+  const known = knownGame(gameId);
+  if (known && tab !== 'box' && (mode === 'personal' || canTrackGame(known)) && !confirmTrackGame(known)) return;
+  S.view = 'loading'; render();
+  await Queue.idle();
+  Queue.paused = true;
+  let t = null;
+  try {
+    // Already known to be offline: use the copy saved on this device without waiting for a timeout.
+    if (isOffline() && store.get('gcs_box_' + localKey(gameId, mode), null)) throw Object.assign(new Error('offline'), { network: true });
+    const r = await call('game', { gameId: gameId, mode: mode });
+    t = gameFromReply(r, mode);
+    Queue.items.filter(e => e.kind !== 'status' && e.gameId === gameId && (e.mode || '') === mode).forEach(e => applyAll(t, e));
+  } catch (err) {
+    const cached = store.get('gcs_box_' + localKey(gameId, mode), null);
+    if (err.network && cached) {
+      t = cached; // already includes every play entered on this device
+      toast('Offline: showing what is saved on this device');
+    } else {
+      Queue.paused = false; Queue.flush();
+      S.view = prevView; render();
+      if (err.auth) return logout(err.message);
+      return toast(err.message);
+    }
+  }
+  Queue.paused = false; Queue.flush();
+  // The game wasn't in our lists: check now that we know it, before showing it.
+  if (!known && tab !== 'box' && t.canTrack && !confirmTrackGame(t.game)) {
+    S.view = prevView; render();
+    return;
+  }
+  const savedPeriod = store.get('gcs_period_' + localKey(gameId, mode), 0);
+  S.t = Object.assign(t, {
+    tab: t.canTrack ? (tab || 'track') : 'box', side: 'us', sel: null, armed: null,
+    period: Math.max(savedPeriod || 0, t.currentPeriod || 0) || 1,
+    periods: t.periods || {},
+    plays: store.get('gcs_plays_' + localKey(gameId, mode), []), backTo: prevView,
+  });
+  saveGameLocal();
+  S.view = 'game';
+  render();
+  window.scrollTo(0, 0);
+  if (S.t.tab === 'track' && !onCourtPlayers().some(p => n0((S.t.box[p.id] || {}).GP) > 0) && S.t.players.some(p => p.active)) whosHereForm();
+}
+
+let refreshing = false;
+async function refreshGameFromServer(quiet) {
+  // Re-read the official totals (only when nothing is waiting to save).
+  const t = S.t;
+  if (!t || Queue.count(t.game.id) || refreshing) return;
+  refreshing = true;
+  try {
+    const r = await call('game', { gameId: t.game.id, mode: t.mode });
+    t.lastSync = Date.now();
+    if (S.t !== t || Queue.count(t.game.id)) return;
+    // Only redraw when something changed, so the screen doesn't jump while someone is tapping.
+    const before = JSON.stringify([t.box, t.periods, t.game.status, t.flow]);
+    if (quiet && before === JSON.stringify([r.box || {}, t.mode ? t.periods : (r.periods || {}), r.game.status, r.flow])) return;
+    t.box = r.box || {}; t.game = r.game; t.players = r.players; if (r.rules) t.rules = r.rules; t.canTrack = r.canTrack; t.canFix = r.canFix; t.parentBooks = r.parentBooks || [];
+    if (!t.mode) { t.periods = r.periods || {}; t.periodBoxes = r.periodBoxes || {}; if ((r.currentPeriod || 0) > t.period) t.period = r.currentPeriod; }
+    saveGameLocal();
+    if (!modalState) render();
+  } catch (e) { /* stay with local numbers */ } finally { refreshing = false; }
+}
+
+// ===========================================================================
+// Data loading & auth
+// ===========================================================================
+// The last home screen this person saw online, kept so the app can open with no connection.
+function saveHomeCache() {
+  if (!S.pin || !S.me || !S.data) return;
+  store.set('gcs_home', { pin: S.pin, me: S.me, data: S.data, savedAt: Date.now() });
+}
+// Switch to the saved copy. Only for the same PIN, and only if it is the same kind of home screen.
+function useCachedHome() {
+  const c = store.get('gcs_home', null);
+  if (!c || !c.data || !c.me || !S.pin || c.pin !== S.pin) return false;
+  if (S.me && !!c.data.boxes !== (S.me.role === 'coach' || !!(S.me.perms && (S.me.perms.viewStats || S.me.perms.manage)))) return false;
+  S.me = c.me; S.data = c.data;
+  S.teamName = (c.data.settings && c.data.settings.teamName) || c.me.teamName || S.teamName;
+  applyColor((c.data.settings || {}).color);
+  if (hasDashboard() && !coachTabList().some(t => t[0] === S.tab)) S.tab = coachTabList()[0][0];
+  S.offline = true;
+  return true;
+}
+function setOnline() {
+  if (!S.offline) return;
+  S.offline = false;
+  const b = document.querySelector('[data-offline-banner]');
+  if (b) b.remove();
+}
+
+async function loadHomeOnline() {
+  if (hasDashboard()) {
+    S.data = await call('all');
+    S.me = S.data.me;
+    S.teamName = S.data.settings.teamName;
+    if (!coachTabList().some(t => t[0] === S.tab)) S.tab = coachTabList()[0][0];
+  } else {
+    S.data = await call('scorerHome');
+    S.teamName = S.data.me.teamName;
+  }
+  store.set('gcs_team', S.teamName);
+  applyColor((S.data.settings || {}).color);
+  setOnline();
+  saveHomeCache();
+  predownloadGames();
+}
+async function loadHome() {
+  try { await loadHomeOnline(); }
+  catch (err) {
+    // No connection: show what this device saved last time instead of an error.
+    if (err.network && useCachedHome()) return;
+    throw err;
+  }
+}
+
+// While offline, keep trying quietly: when the server answers, refresh the screen.
+let retrying = false;
+async function retryHome() {
+  if (!S.offline || retrying || !S.pin) return;
+  retrying = true;
+  try {
+    await loadHomeOnline();
+    Queue.flush();
+    if (!modalState && ['coach', 'scorer', 'player'].indexOf(S.view) >= 0) render();
+  } catch (err) {
+    if (err.auth) logout(err.message);
+  } finally { retrying = false; }
+}
+async function refreshHomeQuietly() {
+  if (!S.pin || isOffline()) return;
+  try {
+    await loadHomeOnline();
+    if (!modalState && ['coach', 'scorer', 'player'].indexOf(S.view) >= 0) render();
+  } catch (err) { /* keep what is on screen */ }
+}
+
+// Download the games this person can track (today's, then the next 3) so they open with no connection.
+// Same snapshot as openGame keeps. Never replaces a copy that has plays waiting to upload.
+let predownloading = false, lastPredownload = 0;
+async function predownloadGames() {
+  if (predownloading || !S.me || !S.data || Date.now() - lastPredownload < 45000) return;
+  predownloading = true; lastPredownload = Date.now();
+  try {
+    const today = todayISO();
+    const pick = list => {
+      const open = (list || []).filter(g => g.status !== 'final').sort((a, b) => a.date.localeCompare(b.date));
+      return open.filter(g => g.date === today).concat(open.filter(g => g.date > today).slice(0, 3));
+    };
+    const jobs = pick((S.data.games || []).filter(canTrackGame)).map(g => [g.id, '']);
+    if ((S.me.players || []).length) pick(hasDashboard() ? S.data.games : S.data.playerGames).forEach(g => jobs.push([g.id, 'personal']));
+    let stored = 0;
+    for (const [id, mode] of jobs) {
+      const busy = () => Queue.items.some(e => e.gameId === id && (!e.kind ? (e.mode || '') === mode : true)) || (S.t && S.t.game.id === id && (S.t.mode || '') === mode);
+      if (busy()) continue;
+      let r;
+      try { r = await call('game', { gameId: id, mode: mode }); }
+      catch (err) { if (err.network) break; continue; }
+      if (busy() || !S.pin) continue; // something was entered while this was downloading
+      const t = gameFromReply(r, mode);
+      if (!t.canTrack) continue;
+      store.set('gcs_box_' + localKey(id, mode), snapshotOf(t));
+      stored++;
+    }
+    if (stored && !modalState && (S.view === 'scorer' || (S.view === 'coach' && S.tab === 'games'))) render();
+  } finally { predownloading = false; }
+}
+
+async function boot() {
+  if (PWA && !API_URL) { S.view = 'setup'; render(); return; }
+  if (!S.pin) { S.view = 'login'; render(); return; }
+  try {
+    S.me = await call('me');
+    await loadHome();
+    S.view = hasDashboard() ? 'coach' : 'scorer';
+    render();
+    Queue.flush();
+  } catch (err) {
+    if (err.auth) return logout(err.message);
+    if (err.network && useCachedHome()) { S.view = hasDashboard() ? 'coach' : 'scorer'; render(); return; }
+    S.view = 'login'; S.loginErr = err.network ? 'No connection. Check your signal and try again.' : err.message; render();
+  }
+}
+
+async function login() {
+  if (S.busy || S.pinEntry.length < 4) return;
+  S.busy = true; S.loginErr = ''; render();
+  S.pin = S.pinEntry;
+  try {
+    S.me = await call('me');
+    store.set('gcs_pin', S.pin);
+    S.pinEntry = '';
+    await loadHome();
+    S.view = hasDashboard() ? 'coach' : 'scorer';
+    Queue.flush();
+  } catch (err) {
+    S.pin = '';
+    S.loginErr = err.network ? 'No connection. Check your signal and try again.' : err.message;
+    S.pinEntry = '';
+  }
+  S.busy = false;
+  render();
+}
+
+function logout(msg) {
+  S.pin = ''; S.me = null; S.data = null; S.t = null; S.pinEntry = ''; S.loginErr = msg || '';
+  store.del('gcs_pin');
+  closeModal();
+  S.view = 'login'; render();
+}
+
+async function coachSave(action, data) {
+  if (isOffline()) { if (modalState) modalErr(NEED_NET); else toast(NEED_NET); return false; }
+  try {
+    S.data = await call(action, data);
+    S.me = S.data.me;
+    saveHomeCache();
+    S.teamName = S.data.settings.teamName;
+    store.set('gcs_team', S.teamName);
+    applyColor(S.data.settings.color);
+    if (S.t && S.data.settings) S.t.rules = { foulOut: S.data.settings.foulOut, bonusFouls: S.data.settings.bonusFouls, timeouts: S.data.settings.timeouts };
+    closeModal();
+    render();
+    return true;
+  } catch (err) {
+    if (err.auth) { logout(err.message); return false; }
+    if (modalState) modalErr(errText(err)); else toast(errText(err));
+    return false;
+  }
+}
+
+function buildReport() {
+  const d = S.data;
+  const rows = seasonTable().filter(r => r.gp).sort((a, b) => byNumber(a.p, b.p));
+  const season = [['#', 'Player', 'GP', 'PTS', 'PPG', 'REB', 'RPG', 'OREB', 'DREB', 'AST', 'APG', 'STL', 'SPG', 'BLK', 'BPG', 'TO', 'TOPG', 'FGM', 'FGA', 'FG%', '3PM', '3PA', '3P%', 'FTM', 'FTA', 'FT%', 'PF']];
+  rows.forEach(r => {
+    const l = r.l, g = r.gp, a = v => Math.round(10 * v / g) / 10;
+    season.push([r.p.number, r.p.name, g, l.pts, a(l.pts), l.REB, a(l.REB), l.OREB, l.DREB, l.AST, a(l.AST), l.STL, a(l.STL), l.BLK, a(l.BLK), l.TO, a(l.TO),
+      l.fgm, l.fga, pctNum(l.fgm, l.fga), l.FG3M, l.FG3A, pctNum(l.FG3M, l.FG3A), l.FTM, l.FTA, pctNum(l.FTM, l.FTA), l.PF]);
+  });
+  const log = [['Date', 'Opponent', 'Location', 'Status', 'Team', 'Opp', 'Side', '#', 'Player', 'PTS', 'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA', 'REB', 'OREB', 'DREB', 'AST', 'STL', 'BLK', 'TO', 'PF']];
+  gamesWithStats().forEach(g => {
+    const box = d.boxes[g.id];
+    d.players.slice().sort(byNumber).forEach(p => {
+      if (!played(box[p.id])) return;
+      const l = line(box[p.id]);
+      log.push([g.date, g.opponent, g.location, g.status, teamPts(box), oppPts(box), d.settings.teamName, p.number, p.name, l.pts, l.fgm, l.fga, l.FG3M, l.FG3A, l.FTM, l.FTA, l.REB, l.OREB, l.DREB, l.AST, l.STL, l.BLK, l.TO, l.PF]);
+    });
+    oppPlayerList(g.oppRoster, box).forEach(p => {
+      if (!hasAny(box[p.id])) return;
+      const l = line(box[p.id]);
+      log.push([g.date, g.opponent, g.location, g.status, teamPts(box), oppPts(box), 'Opponent', p.number, p.name || (p.id === 'opp:team' ? 'Team' : ''), l.pts, l.fgm, l.fga, l.FG3M, l.FG3A, l.FTM, l.FTA, l.REB, l.OREB, l.DREB, l.AST, l.STL, l.BLK, l.TO, l.PF]);
+    });
+  });
+  return { 'Season Stats': season, 'Game Log': log };
+}
+
+// ===========================================================================
+// Actions
+// ===========================================================================
+// Mark a game final. Plays are uploaded first. With no connection the status change waits in the same
+// queue and is sent after the game's last play. Returns 'sent' or 'queued'; throws 'unsaved' if plays are
+// stuck for some reason other than the connection.
+async function finishGame(gameId, clearLocal) {
+  const clear = () => { if (clearLocal) { store.del('gcs_box_' + localKey(gameId)); store.del('gcs_plays_' + localKey(gameId)); store.del('gcs_period_' + localKey(gameId)); } };
+  let drained = false;
+  if (navigator.onLine !== false) drained = await Queue.drain(gameId, 20000, true);
+  const lostConnection = navigator.onLine === false || Queue.offline;
+  if (!drained && !lostConnection) throw Object.assign(new Error('unsaved'), { unsaved: true });
+  if (drained) {
+    try { await call('setStatus', { gameId: gameId, status: 'final' }); clear(); return 'sent'; }
+    catch (err) { if (!err.network) throw err; }
+  }
+  Queue.push([{ kind: 'status', gameId: gameId, status: 'final', id: uid() }]);
+  clear();
+  return 'queued';
+}
+const QUEUED_END = 'Game ended. It will be submitted when you\'re back on Wi-Fi.';
+
+const ACTS = {
+  key(el) {
+    const k = el.dataset.k;
+    if (k === 'clear') S.pinEntry = '';
+    else if (k === 'back') S.pinEntry = S.pinEntry.slice(0, -1);
+    else if (S.pinEntry.length < 8) S.pinEntry += k;
+    S.loginErr = '';
+    render();
+  },
+  login: login,
+  changeApi() {
+    if (Queue.count() && !confirm(Queue.count() + ' plays have not been saved yet. They stay on this device, but will only upload to the team link you connect next. Change the link anyway?')) return;
+    API_URL = ''; store.del('gcs_api'); store.del('gcs_home');
+    S.apiErr = ''; S.apiDraft = ''; S.view = 'setup'; render();
+  },
+  logout() {
+    const n = Queue.count();
+    if (n && !confirm(n + ' plays have not been saved yet. Sign out anyway? They will stay on this phone and save next time you sign in.')) return;
+    logout();
+  },
+  async refresh() {
+    if (needNet()) return;
+    try { await loadHome(); render(); toast(S.offline ? NEED_NET : 'Updated'); } catch (err) { err.auth ? logout(err.message) : toast(errText(err)); }
+  },
+  async refreshScorer() { await ACTS.refresh(); },
+  resultsFilter(el) { S.resultsFilter = el.dataset.f; render(); },
+  tab(el) { S.tab = el.dataset.tab; S.view = 'coach'; render(); window.scrollTo(0, 0); },
+  seasonMode(el) { S.seasonMode = el.dataset.m; render(); },
+  sort(el) {
+    const k = el.dataset.k;
+    S.sort = S.sort.key === k ? { key: k, dir: -S.sort.dir } : { key: k, dir: -1 };
+    render();
+  },
+  openPlayer(el) { S.playerId = el.dataset.id; S.view = 'player'; render(); window.scrollTo(0, 0); },
+  back() { S.view = 'coach'; render(); },
+  openGame(el) { openGame(el.dataset.id, 'track'); },
+  openBox(el) { openGame(el.dataset.id, 'box'); },
+  openPersonal(el) { openGame(el.dataset.id, 'track', 'personal'); },
+  help() { helpModal(); },
+  invite(el) { if (needNet()) return; inviteModal(S.data.parents.find(p => p.id === el.dataset.id)); },
+  async emailInvite(el) {
+    const p = S.data.parents.find(x => x.id === el.dataset.id);
+    if (!p || needNet()) return;
+    el.disabled = true; el.textContent = 'Sending…';
+    try {
+      S.data = await call('emailInvite', { id: p.id, subject: inviteSubject(), body: inviteText(p) });
+      render();
+      inviteModal(S.data.parents.find(x => x.id === p.id), true);
+      toast('Invite emailed to ' + p.email);
+    } catch (err) {
+      if (err.auth) return logout(err.message);
+      el.disabled = false; el.textContent = 'Email to ' + p.email;
+      modalErr(errText(err));
+    }
+  },
+  async emailAll(el) {
+    const list = S.data.parents.filter(p => p.active && p.email && !p.invited);
+    if (!list.length || needNet()) return;
+    if (!confirm('Email invites to ' + list.length + ' ' + (list.length === 1 ? 'person' : 'people') + ' from your Gmail?\n\n' + list.map(p => p.name + ' (' + p.email + ')').join('\n'))) return;
+    el.disabled = true;
+    let sent = 0;
+    const failed = [];
+    for (const p of list) {
+      el.textContent = 'Sending ' + (sent + failed.length + 1) + ' of ' + list.length + '…';
+      try { S.data = await call('emailInvite', { id: p.id, subject: inviteSubject(), body: inviteText(p) }); sent++; }
+      catch (err) { if (err.auth) return logout(err.message); failed.push(p.name + ': ' + err.message); }
+    }
+    render();
+    if (failed.length) alert('Sent ' + sent + '. Not sent:\n' + failed.join('\n'));
+    else toast('Sent ' + sent + ' invite' + (sent === 1 ? '' : 's'));
+  },
+  copyInvite() {
+    const ta = $('#inviteText');
+    ta.select();
+    const done = () => toast('Copied. Paste it into a text or email.');
+    if (navigator.clipboard) navigator.clipboard.writeText(ta.value).then(done, () => { document.execCommand('copy'); done(); });
+    else { document.execCommand('copy'); done(); }
+  },
+  async leaveGame() {
+    const back = S.t && S.t.backTo;
+    S.t = null; S.view = 'loading'; render();
+    try { await loadHome(); } catch (err) { if (err.auth) return logout(err.message); }
+    S.view = back === 'player' ? 'player' : (hasDashboard() ? 'coach' : 'scorer');
+    render();
+  },
+  gameTab(el) {
+    S.t.tab = el.dataset.tab; S.t.sel = null; S.t.armed = null;
+    render();
+    if (S.t.tab === 'box') refreshGameFromServer();
+  },
+  pickPlayer(el) {
+    const id = el.dataset.id, t = S.t;
+    if (t.armed) return recordTap(t.armed, id);
+    t.sel = t.sel === id ? null : id;
+    render();
+  },
+  stat(el) {
+    const code = el.dataset.code, t = S.t;
+    if (t.sel) return recordTap(code, t.sel);
+    t.armed = t.armed === code ? null : code;
+    render();
+  },
+  clearSel() { S.t.sel = null; S.t.armed = null; render(); },
+  opp(el) {
+    const d = Number(el.dataset.d);
+    if (d < 0 && oppPts(S.t.box) <= 0) return;
+    commit('', [mkEv('', 'OPP', d)], (d > 0 ? '+' : '−') + Math.abs(d) + ' opponent point' + (Math.abs(d) === 1 ? '' : 's'));
+    render();
+  },
+  undo(el) {
+    const t = S.t;
+    if (!t) return;
+    const p = t.plays.find(x => x.id === el.dataset.id);
+    if (!p || p.undone) return;
+    // Undo lands in the quarter the play happened in, even if the quarter has changed since.
+    const rev = p.events.map(e => mkEv(e.playerId, e.stat, -e.delta, e.period || null));
+    rev.forEach(e => applyAll(t, e));
+    Queue.push(rev);
+    p.undone = true;
+    saveGameLocal();
+    $('#toast-root').innerHTML = '';
+    toast('Undone: ' + p.label);
+    render();
+    if (modalState && modalState.plays) playsModal();
+  },
+  whosHere() { whosHereForm(); },
+  boxFilter(el) { S.t.boxFilter = el.dataset.f; render(); },
+  period(el) {
+    const n = Number(el.dataset.n);
+    if (!n || n === S.t.period) return;
+    S.t.period = n;
+    saveGameLocal();
+    render();
+    toast('Now tracking ' + periodLabel(n));
+  },
+  oppRoster() { if (!needNet()) oppRosterForm(); },
+  oppStat(el) { recordOppTap(el.dataset.code); },
+  editLine(el) { lineEditor(el.dataset.id); },
+  step(el) {
+    const t = S.t, id = el.dataset.id, k = el.dataset.k, d = Number(el.dataset.d);
+    const scope = k === 'GP' ? 0 : ((modalState && modalState.scope) || 0);
+    const src = scope ? line(((t.periodBoxes || {})[scope] || {})[id]) : line(t.box[id]);
+    const cur = k === 'REB' ? src.rebRaw : src[k];
+    if (cur + d < 0 || (k === 'GP' && cur + d > 1)) return;
+    const e = mkEv(id, k, d, scope || null); e.fix = true;
+    commit(id, [e], 'Fix: ' + (d > 0 ? '+1 ' : '−1 ') + BASE_LABELS[k].toLowerCase(), true);
+    lineEditor(id);
+    render();
+  },
+  checkAll(el) {
+    el.closest('form').querySelectorAll('input[name=' + el.dataset.name + ']').forEach(i => { i.checked = !!el.dataset.on; });
+  },
+  printBox() { printBox(); },
+  trendStat(el) { S.trendStat = el.dataset.k; render(); },
+  doPrint() { window.print(); },
+  closePrint() { document.body.classList.remove('show-print'); $('#print-root').innerHTML = ''; },
+  editScope(el) { lineEditor(el.dataset.id, Number(el.dataset.n)); },
+  allPlays() { playsModal(); },
+  async setStatus(el) {
+    const status = el.dataset.s, t = S.t;
+    if (status === t.game.status) return;
+    try {
+      if (status === 'final') {
+        const how = await finishGame(t.game.id, false);
+        t.game.status = 'final'; saveGameLocal(); render();
+        return toast(how === 'queued' ? QUEUED_END : 'Game marked final');
+      }
+      if (needNet()) return;
+      await Queue.drain(t.game.id);
+      await call('setStatus', { gameId: t.game.id, status: status });
+      t.game.status = status;
+      render();
+      toast('Game marked ' + (status === 'scheduled' ? 'upcoming' : status));
+    } catch (err) { err.auth ? logout(err.message) : toast(err.unsaved ? 'Some plays are still waiting to save. Try again in a moment.' : errText(err)); }
+  },
+  async endGameCard(el) {
+    const g = S.data.games.find(x => x.id === el.dataset.id);
+    if (!g) return;
+    const box = S.data.boxes[g.id] || {};
+    if (!confirm('End the game ' + gameTitle(g) + ' on ' + fmtDate(g.date) + '?\n\nFinal score: ' + shortTeam() + ' ' + teamPts(box) + ' – ' + g.opponent + ' ' + oppPts(box) + '\n\nYou can still fix numbers afterwards.')) return;
+    el.disabled = true;
+    try {
+      const how = await finishGame(g.id, false);
+      if (how === 'sent') await loadHome();
+      render();
+      toast(how === 'queued' ? QUEUED_END : 'Game over: ' + gameTitle(g));
+    } catch (err) {
+      el.disabled = false;
+      err.auth ? logout(err.message) : toast(err.unsaved ? 'Some plays are still waiting to save. Try again in a moment.' : errText(err));
+    }
+  },
+  timeout(el) {
+    const t = S.t;
+    if (!t || t.mode || !t.canTrack) return;
+    const us = el.dataset.side === 'us';
+    const label = (us ? shortTeam() : t.game.opponent) + ' timeout';
+    const play = commit('', [mkEv('', us ? 'TMO_US' : 'TMO_OPP', 1)], label, true);
+    toast(label + ' logged', play.id);
+    render();
+  },
+  endPeriod() {
+    const t = S.t;
+    if (!t || t.mode || !t.canTrack) return;
+    const n = t.period, label = periodLabel(n);
+    const play = commit('', [mkEv('', 'EOQ', 1)], 'End of ' + label, true);
+    let next = n < 4;
+    if (!next) next = confirm('Go to overtime?');
+    if (next) t.period = n + 1;
+    saveGameLocal();
+    render();
+    toast('End of ' + label + ' logged', play.id);
+  },
+  async endGame(el) {
+    const t = S.t, manager = can('manage');
+    const label = el.textContent;
+    const score = shortTeam() + ' ' + teamPts(t.box) + ', ' + t.game.opponent + ' ' + oppPts(t.box);
+    const scoreLine = 'Final score: ' + shortTeam() + ' ' + teamPts(t.box) + ' – ' + t.game.opponent + ' ' + oppPts(t.box);
+    const when = gameTitle(t.game) + ' on ' + fmtDate(t.game.date);
+    if (!confirm(manager
+      ? 'End the game ' + when + '?\n\n' + scoreLine + '\n\nYou can still fix numbers afterwards.'
+      : 'Submit final stats for the game ' + when + '?\n\n' + scoreLine + '\n\nYou won\'t be able to change them after this.')) return;
+    el.disabled = true; el.textContent = 'Saving all plays…';
+    try {
+      // A parent's local copy goes away once the game is submitted (or queued to be).
+      const how = await finishGame(t.game.id, !manager);
+      if (manager) {
+        t.game.status = 'final';
+        t.tab = 'box';
+        saveGameLocal();
+        render();
+        window.scrollTo(0, 0);
+        toast(how === 'queued' ? QUEUED_END : 'Game over. Final: ' + score);
+        return;
+      }
+      toast(how === 'queued' ? QUEUED_END : 'Thanks! Stats sent to the coach.');
+      await ACTS.leaveGame();
+    } catch (err) {
+      el.disabled = false; el.textContent = label;
+      if (err.unsaved) return alert('Some plays are still waiting to save. Check your connection and try again. Nothing is lost; they are stored on this device.');
+      err.auth ? logout(err.message) : alert(errText(err));
+    }
+  },
+  editPlayer(el) { if (needNet()) return; playerForm(S.data.players.find(p => p.id === el.dataset.id)); },
+  bulkPlayers() { if (!needNet()) bulkForm(); },
+  bulkGames() { if (!needNet()) bulkGamesForm(); },
+  deletePlayer(el) {
+    if (needNet()) return;
+    if (!confirm('Remove this player? If they have stats, they are kept and the player is just marked inactive.')) return;
+    coachSave('deletePlayer', { id: el.dataset.id });
+  },
+  async sendGameDayNow() {
+    if (needNet()) return;
+    try {
+      const r = await call('sendGameDayNow', {});
+      toast(r.sent ? 'Sent ' + r.sent + ' reminder' + (r.sent === 1 ? '' : 's') : 'No one to remind today');
+    } catch (err) {
+      if (err.auth) logout(err.message); else toast(errText(err));
+    }
+  },
+  editGame(el) { if (needNet()) return; gameForm(S.data.games.find(g => g.id === el.dataset.id)); },
+  deleteGame(el) {
+    if (needNet()) return;
+    if (!confirm('Delete this game and ALL of its stats? This cannot be undone.')) return;
+    coachSave('deleteGame', { id: el.dataset.id });
+  },
+  editParent(el) { if (needNet()) return; parentForm(S.data.parents.find(p => p.id === el.dataset.id)); },
+  deleteParent(el) {
+    if (needNet()) return;
+    if (!confirm('Remove this parent? Their PIN stops working and their games become unassigned.')) return;
+    coachSave('deleteParent', { id: el.dataset.id });
+  },
+  copyUrl(el) {
+    const input = $('#' + (el && el.dataset && el.dataset.input || 'appUrl'));
+    input.select();
+    const done = () => toast('Link copied');
+    if (navigator.clipboard) navigator.clipboard.writeText(input.value).then(done, () => { document.execCommand('copy'); done(); });
+    else { document.execCommand('copy'); done(); }
+  },
+  async writeReport(el) {
+    if (needNet()) return;
+    el.disabled = true; el.textContent = 'Updating…';
+    try {
+      await call('writeReport', { sheets: buildReport() });
+      toast('Season Stats and Game Log tabs updated');
+    } catch (err) { err.auth ? logout(err.message) : toast(errText(err)); }
+    el.disabled = false; el.textContent = 'Update stats in Google Sheet';
+  },
+  closeModal() {
+    const wasEditor = modalState && modalState.editor;
+    closeModal();
+    if (wasEditor) render();
+  },
+  overlay(el, ev) { if (ev.target === el) ACTS.closeModal(); },
+};
+
+const FORMS = {
+  api(f) {
+    const url = f.elements.url.value.trim();
+    S.apiDraft = url;
+    if (!validApiUrl(url)) {
+      S.apiErr = 'That doesn\'t look like the team link. It starts with https://script.google.com/macros/s/ and ends with /exec.';
+      render(); return;
+    }
+    S.apiErr = ''; S.apiDraft = '';
+    if (url !== API_URL) store.del('gcs_home');
+    API_URL = url; store.set('gcs_api', url);
+    S.view = 'loading'; render();
+    return boot();
+  },
+  player(f) {
+    return coachSave('savePlayer', { id: f.elements.id.value, number: f.elements.number.value, name: f.elements.name.value, active: f.elements.active ? f.elements.active.checked : true });
+  },
+  bulkGames(f) {
+    const lines = f.elements.list.value.split('\n').map(x => x.trim()).filter(Boolean);
+    if (!lines.length) return modalErr('Type at least one game.');
+    const list = [];
+    for (const l of lines) {
+      const g = parseGameLine(l);
+      if (!g) return modalErr('Couldn\'t read: “' + l + '”. Start with a date like 11/10.');
+      list.push(g);
+    }
+    return coachSave('addGames', { list: list });
+  },
+  bulk(f) {
+    const list = f.elements.list.value.split('\n').map(s => s.trim()).filter(Boolean).map(s => {
+      const m = /^#?(\d{1,3})[\s,.\-:]+(.+)$/.exec(s);
+      return m ? { number: m[1], name: m[2].trim() } : { number: '', name: s };
+    });
+    if (!list.length) return modalErr('Type at least one player.');
+    return coachSave('addPlayers', { list: list });
+  },
+  game(f) {
+    return coachSave('saveGame', { id: f.elements.id.value, date: f.elements.date.value, opponent: f.elements.opponent.value, location: f.elements.location.value, scorerIds: Array.from(f.querySelectorAll('input[name=sc]:checked')).map(i => i.value), status: f.elements.status.value, notes: f.elements.notes.value, oppRoster: f.elements.oppRoster.value });
+  },
+  parent(f) {
+    const checked = name => Array.from(f.querySelectorAll('input[name=' + name + ']:checked')).map(i => i.value);
+    const see = (f.querySelector('input[name=see]:checked') || {}).value || 'none';
+    const players = checked('pl');
+    if (see === 'own' && !players.length) return modalErr('To let them see their own player, check that player under "Their own player(s)".');
+    const perms = {
+      trackAny: (f.querySelector('input[name=games]:checked') || {}).value === 'any',
+      fixStats: f.elements.fixStats.checked,
+      viewStats: see === 'team',
+      viewOwn: see === 'own',
+      manage: f.elements.manage.checked,
+    };
+    const isNew = !f.elements.id.value;
+    const before = new Set(S.data.parents.map(p => p.id));
+    return coachSave('saveParent', { players: players, id: f.elements.id.value, name: f.elements.name.value, email: f.elements.email.value, phone: f.elements.phone.value, active: f.elements.active ? f.elements.active.checked : true, newPin: !!(f.elements.newPin && f.elements.newPin.checked), pin: f.elements.pin.value.trim(), perms: perms, trackGroups: checked('tg'), viewGroups: checked('vg') })
+      .then(ok => {
+        // New person with contact info: go straight to sending their invite.
+        const added = ok && isNew && S.data.parents.find(p => !before.has(p.id));
+        if (added && (added.email || added.phone)) inviteModal(added);
+        return ok;
+      });
+  },
+  settings(f) {
+    const colorEl = f.elements.color;
+    const color = colorEl ? (Array.from(colorEl).find(r => r.checked) || {}).value : '';
+    return coachSave('saveSettings', { foulOut: f.elements.foulOut.value, bonusFouls: f.elements.bonusFouls.value, timeouts: f.elements.timeouts.value, color: color || '', teamName: f.elements.teamName.value, season: f.elements.season.value, gameEmails: f.elements.gameEmails.checked, gameDayEmails: f.elements.gameDayEmails.checked, gameDayHour: Number(f.elements.gameDayHour.value), notifyEmail: f.elements.notifyEmail.value.trim() }).then(ok => ok && toast('Saved'));
+  },
+  async coachPin(f) {
+    const err = $('[data-pin-err]');
+    const say = m => { if (err) err.textContent = m; };
+    say('');
+    const cur = f.elements.current.value.trim(), next = f.elements.next.value.trim(), again = f.elements.confirm.value.trim();
+    if (!cur || !next) return say('Enter your current PIN and a new PIN.');
+    if (!/^[1-9]\d{3,7}$/.test(next)) return say("PINs are 4 to 8 digits and can't start with 0.");
+    if (next !== again) return say("The new PINs don't match.");
+    if (isOffline()) return say(NEED_NET);
+    try {
+      await call('changeCoachPin', { current: cur, next: next });
+      // Stay signed in with the new PIN.
+      S.pin = next;
+      store.set('gcs_pin', next);
+      f.reset();
+      toast('Coach PIN changed');
+    } catch (e) {
+      if (e.auth) return logout(e.message);
+      say(errText(e));
+    }
+  },
+  async oppRoster(f) {
+    const t = S.t;
+    try {
+      const r = await call('setOppRoster', { gameId: t.game.id, roster: f.elements.roster.value });
+      t.game.oppRoster = r.oppRoster;
+      saveGameLocal();
+      closeModal();
+      render();
+    } catch (err) { modalErr(err.network ? NEED_NET + ' Use TEAM for now.' : err.message); }
+  },
+  whosHere(f) {
+    const t = S.t;
+    const checked = new Set(Array.from(f.querySelectorAll('input[name=p]:checked')).map(i => i.value));
+    const evs = [];
+    gamePlayers().forEach(p => {
+      const gp = n0((t.box[p.id] || {}).GP);
+      if (checked.has(p.id) && gp < 1) evs.push(mkEv(p.id, 'GP', 1 - gp));
+      if (!checked.has(p.id) && gp > 0) evs.push(mkEv(p.id, 'GP', -gp));
+    });
+    if (evs.length) commit('', evs, 'Set who\'s playing', true);
+    closeModal();
+    render();
+  },
+};
+
+document.addEventListener('click', ev => {
+  const el = ev.target.closest('[data-act]');
+  if (!el || el.disabled) return;
+  const fn = ACTS[el.dataset.act];
+  if (!fn) return;
+  if (el.tagName === 'A') return;
+  if (el.dataset.act === 'overlay' && ev.target !== el) return; // click inside the dialog
+  ev.preventDefault();
+  fn(el, ev);
+});
+document.addEventListener('change', ev => {
+  const sel = ev.target.closest && ev.target.closest('select[data-oppsel]');
+  if (!sel || !S.t) return;
+  if (sel.value === '__add') { S.t.oppSel = 'opp:team'; render(); if (!needNet()) oppRosterForm(); return; }
+  S.t.oppSel = sel.value;
+  render();
+});
+document.addEventListener('submit', async ev => {
+  const f = ev.target.closest('form[data-form]');
+  if (!f) return;
+  ev.preventDefault();
+  const btn = f.querySelector('button[type=submit]') || (f.id && document.querySelector('button[type=submit][form="' + f.id + '"]'));
+  if (btn) { if (btn.disabled) return; btn.disabled = true; }
+  try { await FORMS[f.dataset.form](f); } finally { if (btn && document.body.contains(btn)) btn.disabled = false; }
+});
+document.addEventListener('keydown', ev => {
+  if (S.view !== 'login') return;
+  if (/^\d$/.test(ev.key)) ACTS.key({ dataset: { k: ev.key } });
+  else if (ev.key === 'Backspace') ACTS.key({ dataset: { k: 'back' } });
+  else if (ev.key === 'Enter') login();
+});
+window.addEventListener('beforeunload', ev => { if (Queue.count()) { ev.preventDefault(); ev.returnValue = ''; } });
+
+boot();
+</script>
+</body>
+</html>

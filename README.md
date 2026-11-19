@@ -63,6 +63,41 @@ Paste in the new code, then click **Deploy → Manage deployments → ✏️ Edi
 
 ---
 
+## Install the offline app
+The normal link needs internet to open. For gyms with no Wi-Fi, the same app is also available as an **installable app** that opens and works with no internet at all, including after the tablet restarts. You can track a whole game (Undo, box score, End game), and everything uploads by itself when Wi-Fi returns. It is a copy of the same screens, hosted free by GitHub Pages from this repository's [`docs/`](docs/) folder.
+
+### One-time setup (the coach)
+1. **Make the repository public:** on GitHub, **Settings → General → Danger zone → Change visibility → Public**. Nothing private is in the repository: it holds only the app's code. Names, stats, parents, and PINs stay in your Google Sheet, and the app only reaches them with a PIN.
+2. **Turn on Pages:** **Settings → Pages → Build and deployment → Deploy from a branch → Branch: `main`, folder: `/docs` → Save.**
+3. **Redeploy Apps Script once.** The offline app talks to your script through a new JSON endpoint (`doPost`). Paste in the new `Code.gs`, then **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy** (see *Updating to a newer version later*).
+
+After a minute the app is at **`https://<owner>.github.io/<repo>/`** (your GitHub name and this repository's name).
+
+### Connecting a device
+On each phone or tablet, **while on Wi-Fi**, open
+
+`https://<owner>.github.io/<repo>/?api=<your app link>`
+
+where *your app link* is your Apps Script web app link (the one ending in `/exec`, shown under **⚙ Settings → App link**). Put it right after `?api=`. If it doesn't open, replace the characters in the app link with their URL-encoded forms (`:` → `%3A`, `/` → `%2F`). The link is remembered and disappears from the address bar. If you open the plain address instead, the app asks you to **paste your team's app link** once.
+
+Then sign in with the PIN as usual and **Add to Home Screen** (iPhone/iPad: Share → Add to Home Screen; Android: ⋮ → Install app). Each person's PIN and device only need this once.
+
+### Before leaving Wi-Fi
+Open the app once. Every time it loads online it downloads the games you can track (today's, plus the next 3). Games that are saved on the device show **✓ Ready offline** on the home screen and the Games tab. If today's game has it, you can go.
+
+### While offline
+The app opens with a yellow banner: *Offline: showing what's saved on this device.* Track as normal. The sync light shows how many plays are waiting. **End game** works too; the final result is sent after the last play. Things that need the internet (roster, games, parents, settings, invites, opponent numbers) say so and wait. When Wi-Fi returns, everything uploads on its own; leave the app open for a moment.
+
+### After changing the code
+```
+npm run build:pwa
+```
+then commit the updated `docs/` folder. (`docs/index.html` is generated from `apps-script/Index.html`; `npm test` fails if it is out of date.) If `Code.gs` changed, also redeploy Apps Script as above.
+
+To try it on your computer: `npm run dev`, then open `http://localhost:8080/pwa/?api=http%3A%2F%2Flocalhost%3A8080%2Fexec`. `npm run test:offline` runs the automated end-to-end offline test.
+
+---
+
 ## Using it
 
 ### Before the season (Coach)

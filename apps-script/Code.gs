@@ -89,6 +89,25 @@ function setup() {
     '. You can change it in the app under the Settings tab.');
 }
 
+/**
+ * JSON endpoint for the installable offline app (docs/). Body: {action, data, pin} as text.
+ * Only api() is reachable from here; the body never names another function.
+ * Always answers {ok:true, result} or {ok:false, error}. "AUTH:" is kept so the client can sign out.
+ */
+function doPost(e) {
+  let out;
+  try {
+    const raw = e && e.postData && e.postData.contents;
+    let req;
+    try { req = JSON.parse(raw); } catch (err) { throw new Error('Bad request.'); }
+    if (!req || typeof req !== 'object' || Array.isArray(req)) throw new Error('Bad request.');
+    out = { ok: true, result: api({ action: req.action, data: req.data, pin: req.pin }) };
+  } catch (err) {
+    out = { ok: false, error: String((err && err.message) || err || 'Something went wrong.') };
+  }
+  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+}
+
 /** The single function the web page calls (google.script.run.api). */
 function api(req) {
   req = req || {};

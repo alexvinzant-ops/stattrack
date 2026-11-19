@@ -144,6 +144,8 @@ label.check input { width: 22px; height: 22px; flex: none; }
 .opp-pad { display: flex; gap: 6px; justify-content: center; margin-top: 4px; }
 .opp-pad button { background: rgba(255,255,255,.16); color: var(--accent-ink); border-radius: 8px; padding: 4px 9px; font-weight: 700; font-size: 14px; min-width: 38px; }
 .opp-pad button:active { background: rgba(255,255,255,.3); }
+.offline-banner { background: var(--warn-bg); color: var(--warn); border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 600; padding: 7px 14px; text-align: center; line-height: 1.3; }
+.ready { color: var(--good); font-size: 13px; font-weight: 700; margin-top: 4px; }
 .sync { font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
 .sync::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: #39d98a; }
 .sync.pending::before { background: var(--gold); }
@@ -311,15 +313,73 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
   del(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } },
+  has(k) { try { return localStorage.getItem(k) != null; } catch (e) { return false; } },
 };
 
+// Two ways to reach the server. On the Apps Script page, google.script.run. As the installable
+// offline app (docs/), a plain fetch to the team's /exec link. Everything else is shared.
+const IS_GAS = !!(window.google && google.script && google.script.run);
+const PWA = !IS_GAS;
+function validApiUrl(u) {
+  u = String(u || '').trim();
+  if (/^https:\/\/script\.google\.com\/macros\/s\/[^\s?#]+\/exec$/.test(u)) return true;
+  return location.hostname === 'localhost' && /^http:\/\/localhost(:\d+)?\/exec$/.test(u); // local testing only
+}
+let API_URL = PWA ? store.get('gcs_api', '') : '';
+if (PWA) {
+  // First open from the coach's link: remember the app link, then hide it from the address bar.
+  try {
+    const q = new URLSearchParams(location.search), a = q.get('api');
+    if (a != null) {
+      if (validApiUrl(a)) {
+        if (a !== API_URL) store.del('gcs_home');
+        API_URL = a.trim(); store.set('gcs_api', API_URL);
+      }
+      q.delete('api');
+      history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q.toString() : '') + location.hash);
+    }
+  } catch (e) { /* ignore */ }
+  if (!validApiUrl(API_URL)) API_URL = '';
+  if ('serviceWorker' in navigator) window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+  // Ask the browser not to clear what is saved on this device (plays waiting to upload, offline games).
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
+}
+const NEED_NET = 'This needs an internet connection.';
+const needNet = () => { if (!isOffline()) return false; if (modalState) modalErr(NEED_NET); else toast(NEED_NET); return true; };
+const isOffline = () => !!(S.offline || navigator.onLine === false);
+const errText = err => err && err.network ? NEED_NET : (err && err.message) || 'Something went wrong.';
+
 function call(action, data) {
-  return new Promise((resolve, reject) => {
-    google.script.run
-      .withSuccessHandler(resolve)
-      .withFailureHandler(err => reject(normErr(err)))
-      .api({ action: action, data: data || {}, pin: S.pin });
-  });
+  const req = { action: action, data: data || {}, pin: S.pin };
+  if (IS_GAS) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(err => reject(normErr(err)))
+        .api(req);
+    });
+  }
+  return callFetch(req);
+}
+async function callFetch(req) {
+  const netErr = msg => { const e = normErr('NetworkError: ' + msg); e.network = true; return e; };
+  if (!API_URL) throw new Error('This device is not connected to a team yet.');
+  if (navigator.onLine === false) throw netErr('offline');
+  const ctl = window.AbortController ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), 25000) : null;
+  let res, text;
+  try {
+    // text/plain keeps this a "simple" request, so the browser sends no CORS preflight.
+    res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req), redirect: 'follow', signal: ctl ? ctl.signal : undefined });
+    text = await res.text();
+  } catch (e) {
+    throw netErr((e && e.message) || 'failed to fetch');
+  } finally { clearTimeout(timer); }
+  let j = null;
+  try { j = JSON.parse(text); } catch (e) { /* not JSON: a sign-in or error page */ }
+  if (!j || typeof j !== 'object') throw netErr('the app link did not answer correctly (' + res.status + ')');
+  if (!j.ok) throw normErr(j.error || 'Something went wrong.');
+  return j.result;
 }
 function normErr(err) {
   const raw = String((err && err.message) || err || 'Something went wrong.');
@@ -478,6 +538,8 @@ const S = {
   playerId: null,    // coach player detail
   t: null,           // open game (tracker)
   busy: false,
+  offline: false,    // showing the copy saved on this device because there is no connection
+  apiErr: '', apiDraft: '',
 };
 
 // ===========================================================================
@@ -491,25 +553,40 @@ const Queue = {
   save() { store.set('gcs_queue', this.items); updateSync(); },
   push(evs) { this.items = this.items.concat(evs); this.save(); this.flush(); },
   count(gameId) { return this.items.filter(e => !gameId || e.gameId === gameId).length; },
+  // Plays go first. A game's "final" status is sent only once none of that game's plays are left in the queue.
+  isPlay: e => e.kind !== 'status',
   async flush() {
     if (this.busy || this.paused || !this.items.length || !S.pin) return;
+    const head = this.items.find(e => this.isPlay(e) || !this.items.some(p => this.isPlay(p) && p.gameId === e.gameId));
+    if (!head) return;
     this.busy = true;
     clearTimeout(this.timer);
-    const gameId = this.items[0].gameId, mode = this.items[0].mode || '';
-    const batch = this.items.filter(e => e.gameId === gameId && (e.mode || '') === mode).slice(0, 100);
+    const gameId = head.gameId, mode = head.mode || '';
     let ok = false;
     try {
-      await call('record', { gameId: gameId, mode: mode, events: batch.map(e => ({ id: e.id, playerId: e.playerId, stat: e.stat, delta: e.delta, time: e.time, fix: !!e.fix, period: e.period })) });
-      const sent = new Set(batch.map(e => e.id));
-      this.items = this.items.filter(e => !sent.has(e.id));
+      if (!this.isPlay(head)) {
+        try {
+          await call('setStatus', { gameId: gameId, status: head.status });
+        } catch (err) {
+          // A refusal (not a lost connection) will never succeed on retry, so tell the person and move on.
+          if (!err.network && !err.auth) { this.items = this.items.filter(e => e !== head); toast('Could not end the game: ' + err.message); }
+          throw err;
+        }
+        this.items = this.items.filter(e => e !== head);
+      } else {
+        const batch = this.items.filter(e => this.isPlay(e) && e.gameId === gameId && (e.mode || '') === mode).slice(0, 100);
+        await call('record', { gameId: gameId, mode: mode, events: batch.map(e => ({ id: e.id, playerId: e.playerId, stat: e.stat, delta: e.delta, time: e.time, fix: !!e.fix, period: e.period })) });
+        const sent = new Set(batch.map(e => e.id));
+        this.items = this.items.filter(e => !sent.has(e.id));
+      }
       this.error = ''; this.offline = false; this.delay = 2000;
       ok = true;
     } catch (err) {
       this.offline = !!err.network;
       this.error = err.network ? '' : err.message;
-      if (!err.network) {
+      if (!err.network && this.isPlay(head)) {
         // Don't let one stuck game block plays for another game.
-        const stuck = e => e.gameId === gameId && (e.mode || '') === mode;
+        const stuck = e => this.isPlay(e) && e.gameId === gameId && (e.mode || '') === mode;
         this.items = this.items.filter(e => !stuck(e)).concat(this.items.filter(stuck));
       }
       this.timer = setTimeout(() => this.flush(), this.delay);
@@ -518,21 +595,25 @@ const Queue = {
     this.busy = false;
     this.save();
     this.waiters.splice(0).forEach(f => f());
+    if (ok && head.kind === 'status' && S.view !== 'game') refreshHomeQuietly();
     if (ok && this.items.length) this.flush();
   },
   idle() { return this.busy ? new Promise(r => this.waiters.push(r)) : Promise.resolve(); },
-  async drain(gameId, ms) {
+  // quick: give up as soon as an attempt fails because there is no connection (the caller will queue the rest).
+  async drain(gameId, ms, quick) {
     const until = Date.now() + (ms || 15000);
     while (this.count(gameId) && Date.now() < until) {
       clearTimeout(this.timer); this.busy || this.flush();
       await this.idle();
+      if (quick && this.offline) break;
       if (this.count(gameId)) await new Promise(r => setTimeout(r, 600));
     }
     return this.count(gameId) === 0;
   },
 };
-window.addEventListener('online', () => Queue.flush());
+window.addEventListener('online', () => { Queue.flush(); retryHome(); });
 setInterval(() => Queue.flush(), 15000);
+setInterval(() => retryHome(), 30000);
 // Live bench view: while a live game is open, pull the latest numbers every few seconds.
 const LIVE_REFRESH_MS = 8000;
 setInterval(() => {
@@ -562,14 +643,19 @@ function render() {
   const v = S.view;
   let html;
   if (v === 'loading') html = '<div class="loading">Loading…</div>';
+  else if (v === 'setup') html = viewSetup();
   else if (v === 'login') html = viewLogin();
   else if (v === 'scorer') html = viewScorerHome();
   else if (v === 'coach') html = viewCoach();
   else if (v === 'player') html = viewPlayer();
   else if (v === 'game') html = viewGame();
+  if (S.offline && v !== 'login' && v !== 'setup' && v !== 'loading') html = offlineBanner() + html;
   $('#app').innerHTML = html;
   updateSync();
 }
+
+const OFFLINE_NOTE = 'Offline: showing what\'s saved on this device. Stats you enter will upload when you\'re back on Wi-Fi.';
+function offlineBanner() { return '<div class="offline-banner" role="status" data-offline-banner>' + esc(OFFLINE_NOTE) + '</div>'; }
 
 let modalState = null;
 function openModal(html, opts) { modalState = opts || {}; $('#modal-root').innerHTML = '<div class="overlay" data-act="overlay"><div class="modal" role="dialog">' + html + '</div></div>'; const f = $('#modal-root input[autofocus]'); if (f) f.focus(); }
@@ -605,6 +691,20 @@ function viewLogin() {
     '<button class="btn primary big" data-act="login" ' + (S.busy || S.pinEntry.length < 4 ? 'disabled' : '') + '>' + (S.busy ? 'Signing in…' : 'Sign in') + '</button>' +
     '<p class="muted small" style="margin-top:18px">Parents: use the PIN the coach gave you.</p>' +
     '<button class="btn" data-act="help">First time? How it works</button>' +
+    (PWA ? '<button class="link" style="color:var(--muted);margin-top:10px" data-act="changeApi">Change team link</button>' : '') +
+    '</div>';
+}
+
+// First run of the installable app: it needs to know which team's server to talk to.
+function viewSetup() {
+  return '<div class="login">' +
+    '<div class="logo">🏀</div>' +
+    '<h1>Team Stats</h1><div class="muted">Connect this device to your team</div>' +
+    '<form data-form="api" style="margin-top:18px;text-align:left" autocomplete="off">' +
+    '<label class="field">Paste your team\'s app link (from the coach\'s ⚙ Settings → App link)' +
+    '<input name="url" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(S.apiDraft) + '"></label>' +
+    '<div class="err" data-api-err>' + esc(S.apiErr) + '</div>' +
+    '<button class="btn primary big" type="submit">Connect</button></form>' +
     '</div>';
 }
 
@@ -617,9 +717,9 @@ function viewScorerHome() {
   const mine = d.myPlayers || [];
   const pgames = d.playerGames || [];
   const names = mine.map(p => p.name.split(' ')[0]).join(' & ');
-  const gameCard = (g, btn, tag) => '<div class="card"><div class="row"><div class="grow" style="flex:1"><div style="font-weight:700;font-size:17px">' + (tag ? '<span class="today-tag">' + esc(tag) + '</span>' : '') + esc(gameTitle(g)) + '</div>' +
-    '<div class="muted small">' + esc(gameMeta(g)) + '</div></div>' + statusChip(g.status) + '</div>' + btn + '</div>';
-  const grp = groupGames(games);
+  const gameCard = (g, btn, tag, mode) => '<div class="card"><div class="row"><div class="grow" style="flex:1"><div style="font-weight:700;font-size:17px">' + (tag ? '<span class="today-tag">' + esc(tag) + '</span>' : '') + esc(gameTitle(g)) + '</div>' +
+    '<div class="muted small">' + esc(gameMeta(g)) + '</div>' + readyHtml(g, mode) + '</div>' + statusChip(g.status) + '</div>' + btn + '</div>';
+  const grp = groupGames(games.filter(g => !isEnding(g.id)));
   const trackBtn = (g, primary) => '<button class="btn ' + (primary ? 'primary ' : '') + 'big" style="margin-top:12px" data-act="openGame" data-id="' + esc(g.id) + '">' + (g.status === 'live' ? 'Continue tracking' : 'Start tracking') + '</button>';
   let html = '';
   if (games.length || !mine.length) {
@@ -635,10 +735,10 @@ function viewScorerHome() {
     // Next few games only, so the list stays short. Today's game comes first.
     const rank = g => g.date === todayISO() ? 0 : g.date > todayISO() ? 1 : 2;
     const todayCount = pgames.filter(g => g.date === todayISO()).length;
-    const upcoming = pgames.filter(g => g.date >= todayISO() || g.status === 'live').sort((a, b) => rank(a) - rank(b) || a.date.localeCompare(b.date)).slice(0, 4);
+    const upcoming = pgames.filter(g => !isEnding(g.id) && (g.date >= todayISO() || g.status === 'live')).sort((a, b) => rank(a) - rank(b) || a.date.localeCompare(b.date)).slice(0, 4);
     html += '<div class="section-title">Your player' + (mine.length > 1 ? 's' : '') + ': ' + esc(mine.map(playerLabel).join(', ')) + '</div>' +
       '<p class="small muted" style="margin:6px 2px 0">Keep your own record of ' + esc(names) + ' in any game. It goes to the coach and never changes the official stats.</p>' +
-      (upcoming.length ? upcoming.map(g => gameCard(g, '<button class="btn ' + (rank(g) === 0 ? 'primary ' : '') + 'big" style="margin-top:12px" data-act="openPersonal" data-id="' + esc(g.id) + '">Track ' + esc(names) + '</button>', rank(g) === 0 && todayCount === 1 ? 'Today\'s game' : '')).join('')
+      (upcoming.length ? upcoming.map(g => gameCard(g, '<button class="btn ' + (rank(g) === 0 ? 'primary ' : '') + 'big" style="margin-top:12px" data-act="openPersonal" data-id="' + esc(g.id) + '">Track ' + esc(names) + '</button>', rank(g) === 0 && todayCount === 1 ? 'Today\'s game' : '', 'personal')).join('')
         : '<div class="card empty">No upcoming games.</div>');
   }
   if (d.myStats) html += viewMyStats(mine, d.myStats);
@@ -716,6 +816,10 @@ function viewMyStats(mine, myStats) {
   }).join('');
 }
 
+// "Ready offline": a copy of the game is saved on this device, so it opens with no connection.
+function readyHtml(g, mode) { return store.has('gcs_box_' + localKey(g.id, mode)) ? '<div class="ready" data-ready>✓ Ready offline</div>' : ''; }
+// A game this device ended while offline: its "final" is queued and goes up after the last play.
+function isEnding(gameId) { return Queue.items.some(e => e.kind === 'status' && e.gameId === gameId); }
 function statusChip(status) { return '<span class="chip ' + status + '">' + (status === 'scheduled' ? 'Upcoming' : status) + '</span>'; }
 
 // ---------------------------------------------------------------------------
@@ -1290,17 +1394,18 @@ function viewGames() {
     const box = d.boxes[g.id] || {};
     const us = teamPts(box), them = oppPts(box);
     const showScore = canSeeGroup('scoring');
-    const result = g.status === 'final' && showScore ? (us > them ? '<span class="chip win">W</span>' : us < them ? '<span class="chip loss">L</span>' : '<span class="chip">T</span>') : statusChip(g.status);
+    const ending = isEnding(g.id);
+    const result = ending ? '<span class="chip">Ending…</span>' : g.status === 'final' && showScore ? (us > them ? '<span class="chip win">W</span>' : us < them ? '<span class="chip loss">L</span>' : '<span class="chip">T</span>') : statusChip(g.status);
     const scorer = (g.scorerIds || []).map(parentName).filter(Boolean).join(', ');
     const tag = g.date === todayISO() && grp.today.length === 1 ? '<span class="today-tag">Today\'s game</span>' : '';
     return '<div class="card"><div class="row"><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:17px">' + tag + esc(gameTitle(g)) + '</div>' +
-      '<div class="muted small">' + esc(fmtDate(g.date)) + ' · Stats: ' + (scorer ? esc(scorer) : '<b>no parent assigned</b>') + '</div></div>' +
+      '<div class="muted small">' + esc(fmtDate(g.date)) + ' · Stats: ' + (scorer ? esc(scorer) : '<b>no parent assigned</b>') + '</div>' + (canTrackGame(g) ? readyHtml(g) : '') + '</div>' +
       '<div style="text-align:right">' + result + (g.status !== 'scheduled' && showScore ? '<div style="font-weight:800;font-size:18px;margin-top:2px">' + us + '–' + them + '</div>' + savedScoreNote(g, us, them) : '') + '</div></div>' +
       '<div class="row wrap-row" style="margin-top:10px">' +
       (canTrackGame(g) ? '<button class="btn sm' + (primary ? ' primary' : '') + '" data-act="openGame" data-id="' + esc(g.id) + '">' + (primary ? (g.status === 'live' ? 'Continue tracking' : 'Start tracking') : 'Track') + '</button>' : '') +
       (g.status !== 'final' && S.me.players && S.me.players.length ? '<button class="btn sm" data-act="openPersonal" data-id="' + esc(g.id) + '">Track my player</button>' : '') +
       '<button class="btn sm" data-act="openBox" data-id="' + esc(g.id) + '">Box score</button>' +
-      (g.status === 'live' && can('manage') ? '<button class="btn sm danger" data-act="endGameCard" data-id="' + esc(g.id) + '">End game</button>' : '') +
+      (g.status === 'live' && can('manage') && !ending ? '<button class="btn sm danger" data-act="endGameCard" data-id="' + esc(g.id) + '">End game</button>' : '') +
       (can('manage') ? '<button class="btn sm" data-act="editGame" data-id="' + esc(g.id) + '">Edit</button>' : '') + '</div></div>';
   };
   return (can('manage') ? '<div class="row" style="margin-top:14px"><span class="spacer"></span><button class="btn" data-act="bulkGames">Add many</button><button class="btn primary" data-act="editGame">+ New game</button></div>' : '') +
@@ -1741,9 +1846,16 @@ function mkEv(playerId, stat, delta, period) {
   return { id: uid(), gameId: S.t.game.id, mode: S.t.mode || '', playerId: playerId || '', stat: stat, delta: delta, period: p, time: new Date().toISOString() };
 }
 const localKey = (gameId, mode) => gameId + (mode === 'personal' ? '_p' : '');
+// What a server 'game' answer becomes in the tracker, and the copy of it kept on this device.
+function gameFromReply(r, mode) {
+  return { game: r.game, players: r.players, box: r.box || {}, periods: r.periods || {}, periodBoxes: r.periodBoxes || {}, currentPeriod: r.currentPeriod || 0, canTrack: r.canTrack, canFix: r.canFix, mode: mode, parentBooks: r.parentBooks || [] };
+}
+function snapshotOf(t) {
+  return { game: t.game, players: t.players, box: t.box, periods: t.periods, periodBoxes: t.periodBoxes, canTrack: t.canTrack, canFix: t.canFix, mode: t.mode };
+}
 function saveGameLocal() {
   const t = S.t, k = localKey(t.game.id, t.mode);
-  store.set('gcs_box_' + k, { game: t.game, players: t.players, box: t.box, periods: t.periods, periodBoxes: t.periodBoxes, canTrack: t.canTrack, canFix: t.canFix, mode: t.mode });
+  store.set('gcs_box_' + k, snapshotOf(t));
   store.set('gcs_period_' + k, t.period);
   store.set('gcs_plays_' + k, t.plays.slice(0, 400));
 }
@@ -1802,14 +1914,16 @@ async function openGame(gameId, tab, mode) {
   Queue.paused = true;
   let t = null;
   try {
+    // Already known to be offline: use the copy saved on this device without waiting for a timeout.
+    if (isOffline() && store.get('gcs_box_' + localKey(gameId, mode), null)) throw Object.assign(new Error('offline'), { network: true });
     const r = await call('game', { gameId: gameId, mode: mode });
-    t = { game: r.game, players: r.players, box: r.box || {}, periods: r.periods || {}, periodBoxes: r.periodBoxes || {}, currentPeriod: r.currentPeriod || 0, canTrack: r.canTrack, canFix: r.canFix, mode: mode, parentBooks: r.parentBooks || [] };
-    Queue.items.filter(e => e.gameId === gameId && (e.mode || '') === mode).forEach(e => applyAll(t, e));
+    t = gameFromReply(r, mode);
+    Queue.items.filter(e => e.kind !== 'status' && e.gameId === gameId && (e.mode || '') === mode).forEach(e => applyAll(t, e));
   } catch (err) {
     const cached = store.get('gcs_box_' + localKey(gameId, mode), null);
     if (err.network && cached) {
       t = cached; // already includes every play entered on this device
-      toast('Offline: showing what is saved on this phone');
+      toast('Offline: showing what is saved on this device');
     } else {
       Queue.paused = false; Queue.flush();
       S.view = prevView; render();
@@ -1860,7 +1974,31 @@ async function refreshGameFromServer(quiet) {
 // ===========================================================================
 // Data loading & auth
 // ===========================================================================
-async function loadHome() {
+// The last home screen this person saw online, kept so the app can open with no connection.
+function saveHomeCache() {
+  if (!S.pin || !S.me || !S.data) return;
+  store.set('gcs_home', { pin: S.pin, me: S.me, data: S.data, savedAt: Date.now() });
+}
+// Switch to the saved copy. Only for the same PIN, and only if it is the same kind of home screen.
+function useCachedHome() {
+  const c = store.get('gcs_home', null);
+  if (!c || !c.data || !c.me || !S.pin || c.pin !== S.pin) return false;
+  if (S.me && !!c.data.boxes !== (S.me.role === 'coach' || !!(S.me.perms && (S.me.perms.viewStats || S.me.perms.manage)))) return false;
+  S.me = c.me; S.data = c.data;
+  S.teamName = (c.data.settings && c.data.settings.teamName) || c.me.teamName || S.teamName;
+  applyColor((c.data.settings || {}).color);
+  if (hasDashboard() && !coachTabList().some(t => t[0] === S.tab)) S.tab = coachTabList()[0][0];
+  S.offline = true;
+  return true;
+}
+function setOnline() {
+  if (!S.offline) return;
+  S.offline = false;
+  const b = document.querySelector('[data-offline-banner]');
+  if (b) b.remove();
+}
+
+async function loadHomeOnline() {
   if (hasDashboard()) {
     S.data = await call('all');
     S.me = S.data.me;
@@ -1872,9 +2010,73 @@ async function loadHome() {
   }
   store.set('gcs_team', S.teamName);
   applyColor((S.data.settings || {}).color);
+  setOnline();
+  saveHomeCache();
+  predownloadGames();
+}
+async function loadHome() {
+  try { await loadHomeOnline(); }
+  catch (err) {
+    // No connection: show what this device saved last time instead of an error.
+    if (err.network && useCachedHome()) return;
+    throw err;
+  }
+}
+
+// While offline, keep trying quietly: when the server answers, refresh the screen.
+let retrying = false;
+async function retryHome() {
+  if (!S.offline || retrying || !S.pin) return;
+  retrying = true;
+  try {
+    await loadHomeOnline();
+    Queue.flush();
+    if (!modalState && ['coach', 'scorer', 'player'].indexOf(S.view) >= 0) render();
+  } catch (err) {
+    if (err.auth) logout(err.message);
+  } finally { retrying = false; }
+}
+async function refreshHomeQuietly() {
+  if (!S.pin || isOffline()) return;
+  try {
+    await loadHomeOnline();
+    if (!modalState && ['coach', 'scorer', 'player'].indexOf(S.view) >= 0) render();
+  } catch (err) { /* keep what is on screen */ }
+}
+
+// Download the games this person can track (today's, then the next 3) so they open with no connection.
+// Same snapshot as openGame keeps. Never replaces a copy that has plays waiting to upload.
+let predownloading = false, lastPredownload = 0;
+async function predownloadGames() {
+  if (predownloading || !S.me || !S.data || Date.now() - lastPredownload < 45000) return;
+  predownloading = true; lastPredownload = Date.now();
+  try {
+    const today = todayISO();
+    const pick = list => {
+      const open = (list || []).filter(g => g.status !== 'final').sort((a, b) => a.date.localeCompare(b.date));
+      return open.filter(g => g.date === today).concat(open.filter(g => g.date > today).slice(0, 3));
+    };
+    const jobs = pick((S.data.games || []).filter(canTrackGame)).map(g => [g.id, '']);
+    if ((S.me.players || []).length) pick(hasDashboard() ? S.data.games : S.data.playerGames).forEach(g => jobs.push([g.id, 'personal']));
+    let stored = 0;
+    for (const [id, mode] of jobs) {
+      const busy = () => Queue.items.some(e => e.gameId === id && (!e.kind ? (e.mode || '') === mode : true)) || (S.t && S.t.game.id === id && (S.t.mode || '') === mode);
+      if (busy()) continue;
+      let r;
+      try { r = await call('game', { gameId: id, mode: mode }); }
+      catch (err) { if (err.network) break; continue; }
+      if (busy() || !S.pin) continue; // something was entered while this was downloading
+      const t = gameFromReply(r, mode);
+      if (!t.canTrack) continue;
+      store.set('gcs_box_' + localKey(id, mode), snapshotOf(t));
+      stored++;
+    }
+    if (stored && !modalState && (S.view === 'scorer' || (S.view === 'coach' && S.tab === 'games'))) render();
+  } finally { predownloading = false; }
 }
 
 async function boot() {
+  if (PWA && !API_URL) { S.view = 'setup'; render(); return; }
   if (!S.pin) { S.view = 'login'; render(); return; }
   try {
     S.me = await call('me');
@@ -1884,6 +2086,7 @@ async function boot() {
     Queue.flush();
   } catch (err) {
     if (err.auth) return logout(err.message);
+    if (err.network && useCachedHome()) { S.view = hasDashboard() ? 'coach' : 'scorer'; render(); return; }
     S.view = 'login'; S.loginErr = err.network ? 'No connection. Check your signal and try again.' : err.message; render();
   }
 }
@@ -1901,7 +2104,7 @@ async function login() {
     Queue.flush();
   } catch (err) {
     S.pin = '';
-    S.loginErr = err.message;
+    S.loginErr = err.network ? 'No connection. Check your signal and try again.' : err.message;
     S.pinEntry = '';
   }
   S.busy = false;
@@ -1916,9 +2119,11 @@ function logout(msg) {
 }
 
 async function coachSave(action, data) {
+  if (isOffline()) { if (modalState) modalErr(NEED_NET); else toast(NEED_NET); return false; }
   try {
     S.data = await call(action, data);
     S.me = S.data.me;
+    saveHomeCache();
     S.teamName = S.data.settings.teamName;
     store.set('gcs_team', S.teamName);
     applyColor(S.data.settings.color);
@@ -1928,7 +2133,7 @@ async function coachSave(action, data) {
     return true;
   } catch (err) {
     if (err.auth) { logout(err.message); return false; }
-    if (modalState) modalErr(err.message); else toast(err.message);
+    if (modalState) modalErr(errText(err)); else toast(errText(err));
     return false;
   }
 }
@@ -1962,6 +2167,25 @@ function buildReport() {
 // ===========================================================================
 // Actions
 // ===========================================================================
+// Mark a game final. Plays are uploaded first. With no connection the status change waits in the same
+// queue and is sent after the game's last play. Returns 'sent' or 'queued'; throws 'unsaved' if plays are
+// stuck for some reason other than the connection.
+async function finishGame(gameId, clearLocal) {
+  const clear = () => { if (clearLocal) { store.del('gcs_box_' + localKey(gameId)); store.del('gcs_plays_' + localKey(gameId)); store.del('gcs_period_' + localKey(gameId)); } };
+  let drained = false;
+  if (navigator.onLine !== false) drained = await Queue.drain(gameId, 20000, true);
+  const lostConnection = navigator.onLine === false || Queue.offline;
+  if (!drained && !lostConnection) throw Object.assign(new Error('unsaved'), { unsaved: true });
+  if (drained) {
+    try { await call('setStatus', { gameId: gameId, status: 'final' }); clear(); return 'sent'; }
+    catch (err) { if (!err.network) throw err; }
+  }
+  Queue.push([{ kind: 'status', gameId: gameId, status: 'final', id: uid() }]);
+  clear();
+  return 'queued';
+}
+const QUEUED_END = 'Game ended. It will be submitted when you\'re back on Wi-Fi.';
+
 const ACTS = {
   key(el) {
     const k = el.dataset.k;
@@ -1972,13 +2196,19 @@ const ACTS = {
     render();
   },
   login: login,
+  changeApi() {
+    if (Queue.count() && !confirm(Queue.count() + ' plays have not been saved yet. They stay on this device, but will only upload to the team link you connect next. Change the link anyway?')) return;
+    API_URL = ''; store.del('gcs_api'); store.del('gcs_home');
+    S.apiErr = ''; S.apiDraft = ''; S.view = 'setup'; render();
+  },
   logout() {
     const n = Queue.count();
     if (n && !confirm(n + ' plays have not been saved yet. Sign out anyway? They will stay on this phone and save next time you sign in.')) return;
     logout();
   },
   async refresh() {
-    try { await loadHome(); render(); toast('Updated'); } catch (err) { err.auth ? logout(err.message) : toast(err.message); }
+    if (needNet()) return;
+    try { await loadHome(); render(); toast(S.offline ? NEED_NET : 'Updated'); } catch (err) { err.auth ? logout(err.message) : toast(errText(err)); }
   },
   async refreshScorer() { await ACTS.refresh(); },
   resultsFilter(el) { S.resultsFilter = el.dataset.f; render(); },
@@ -1995,10 +2225,10 @@ const ACTS = {
   openBox(el) { openGame(el.dataset.id, 'box'); },
   openPersonal(el) { openGame(el.dataset.id, 'track', 'personal'); },
   help() { helpModal(); },
-  invite(el) { inviteModal(S.data.parents.find(p => p.id === el.dataset.id)); },
+  invite(el) { if (needNet()) return; inviteModal(S.data.parents.find(p => p.id === el.dataset.id)); },
   async emailInvite(el) {
     const p = S.data.parents.find(x => x.id === el.dataset.id);
-    if (!p) return;
+    if (!p || needNet()) return;
     el.disabled = true; el.textContent = 'Sending…';
     try {
       S.data = await call('emailInvite', { id: p.id, subject: inviteSubject(), body: inviteText(p) });
@@ -2008,12 +2238,12 @@ const ACTS = {
     } catch (err) {
       if (err.auth) return logout(err.message);
       el.disabled = false; el.textContent = 'Email to ' + p.email;
-      modalErr(err.network ? 'No connection. Try again in a moment.' : err.message);
+      modalErr(errText(err));
     }
   },
   async emailAll(el) {
     const list = S.data.parents.filter(p => p.active && p.email && !p.invited);
-    if (!list.length) return;
+    if (!list.length || needNet()) return;
     if (!confirm('Email invites to ' + list.length + ' ' + (list.length === 1 ? 'person' : 'people') + ' from your Gmail?\n\n' + list.map(p => p.name + ' (' + p.email + ')').join('\n'))) return;
     el.disabled = true;
     let sent = 0;
@@ -2091,7 +2321,7 @@ const ACTS = {
     render();
     toast('Now tracking ' + periodLabel(n));
   },
-  oppRoster() { oppRosterForm(); },
+  oppRoster() { if (!needNet()) oppRosterForm(); },
   oppStat(el) { recordOppTap(el.dataset.code); },
   editLine(el) { lineEditor(el.dataset.id); },
   step(el) {
@@ -2116,13 +2346,20 @@ const ACTS = {
   allPlays() { playsModal(); },
   async setStatus(el) {
     const status = el.dataset.s, t = S.t;
+    if (status === t.game.status) return;
     try {
+      if (status === 'final') {
+        const how = await finishGame(t.game.id, false);
+        t.game.status = 'final'; saveGameLocal(); render();
+        return toast(how === 'queued' ? QUEUED_END : 'Game marked final');
+      }
+      if (needNet()) return;
       await Queue.drain(t.game.id);
       await call('setStatus', { gameId: t.game.id, status: status });
       t.game.status = status;
       render();
       toast('Game marked ' + (status === 'scheduled' ? 'upcoming' : status));
-    } catch (err) { err.auth ? logout(err.message) : toast(err.message); }
+    } catch (err) { err.auth ? logout(err.message) : toast(err.unsaved ? 'Some plays are still waiting to save. Try again in a moment.' : errText(err)); }
   },
   async endGameCard(el) {
     const g = S.data.games.find(x => x.id === el.dataset.id);
@@ -2131,14 +2368,13 @@ const ACTS = {
     if (!confirm('End the game ' + gameTitle(g) + ' on ' + fmtDate(g.date) + '?\n\nFinal score: ' + shortTeam() + ' ' + teamPts(box) + ' – ' + g.opponent + ' ' + oppPts(box) + '\n\nYou can still fix numbers afterwards.')) return;
     el.disabled = true;
     try {
-      await Queue.drain(g.id);
-      await call('setStatus', { gameId: g.id, status: 'final' });
-      await loadHome();
+      const how = await finishGame(g.id, false);
+      if (how === 'sent') await loadHome();
       render();
-      toast('Game over: ' + gameTitle(g));
+      toast(how === 'queued' ? QUEUED_END : 'Game over: ' + gameTitle(g));
     } catch (err) {
       el.disabled = false;
-      err.auth ? logout(err.message) : toast(err.message);
+      err.auth ? logout(err.message) : toast(err.unsaved ? 'Some plays are still waiting to save. Try again in a moment.' : errText(err));
     }
   },
   timeout(el) {
@@ -2172,51 +2408,52 @@ const ACTS = {
       ? 'End the game ' + when + '?\n\n' + scoreLine + '\n\nYou can still fix numbers afterwards.'
       : 'Submit final stats for the game ' + when + '?\n\n' + scoreLine + '\n\nYou won\'t be able to change them after this.')) return;
     el.disabled = true; el.textContent = 'Saving all plays…';
-    const ok = await Queue.drain(t.game.id, 20000);
-    if (!ok) {
-      el.disabled = false; el.textContent = label;
-      return alert('Some plays are still waiting to save. Check your connection and try again. Nothing is lost; they are stored on this phone.');
-    }
     try {
-      await call('setStatus', { gameId: t.game.id, status: 'final' });
+      // A parent's local copy goes away once the game is submitted (or queued to be).
+      const how = await finishGame(t.game.id, !manager);
       if (manager) {
         t.game.status = 'final';
         t.tab = 'box';
+        saveGameLocal();
         render();
         window.scrollTo(0, 0);
-        toast('Game over. Final: ' + score);
+        toast(how === 'queued' ? QUEUED_END : 'Game over. Final: ' + score);
         return;
       }
-      store.del('gcs_box_' + localKey(t.game.id)); store.del('gcs_plays_' + localKey(t.game.id)); store.del('gcs_period_' + localKey(t.game.id));
-      toast('Thanks! Stats sent to the coach.');
+      toast(how === 'queued' ? QUEUED_END : 'Thanks! Stats sent to the coach.');
       await ACTS.leaveGame();
     } catch (err) {
       el.disabled = false; el.textContent = label;
-      err.auth ? logout(err.message) : alert(err.message);
+      if (err.unsaved) return alert('Some plays are still waiting to save. Check your connection and try again. Nothing is lost; they are stored on this device.');
+      err.auth ? logout(err.message) : alert(errText(err));
     }
   },
-  editPlayer(el) { playerForm(S.data.players.find(p => p.id === el.dataset.id)); },
-  bulkPlayers() { bulkForm(); },
-  bulkGames() { bulkGamesForm(); },
+  editPlayer(el) { if (needNet()) return; playerForm(S.data.players.find(p => p.id === el.dataset.id)); },
+  bulkPlayers() { if (!needNet()) bulkForm(); },
+  bulkGames() { if (!needNet()) bulkGamesForm(); },
   deletePlayer(el) {
+    if (needNet()) return;
     if (!confirm('Remove this player? If they have stats, they are kept and the player is just marked inactive.')) return;
     coachSave('deletePlayer', { id: el.dataset.id });
   },
   async sendGameDayNow() {
+    if (needNet()) return;
     try {
       const r = await call('sendGameDayNow', {});
       toast(r.sent ? 'Sent ' + r.sent + ' reminder' + (r.sent === 1 ? '' : 's') : 'No one to remind today');
     } catch (err) {
-      if (err.auth) logout(err.message); else toast(err.message);
+      if (err.auth) logout(err.message); else toast(errText(err));
     }
   },
-  editGame(el) { gameForm(S.data.games.find(g => g.id === el.dataset.id)); },
+  editGame(el) { if (needNet()) return; gameForm(S.data.games.find(g => g.id === el.dataset.id)); },
   deleteGame(el) {
+    if (needNet()) return;
     if (!confirm('Delete this game and ALL of its stats? This cannot be undone.')) return;
     coachSave('deleteGame', { id: el.dataset.id });
   },
-  editParent(el) { parentForm(S.data.parents.find(p => p.id === el.dataset.id)); },
+  editParent(el) { if (needNet()) return; parentForm(S.data.parents.find(p => p.id === el.dataset.id)); },
   deleteParent(el) {
+    if (needNet()) return;
     if (!confirm('Remove this parent? Their PIN stops working and their games become unassigned.')) return;
     coachSave('deleteParent', { id: el.dataset.id });
   },
@@ -2228,11 +2465,12 @@ const ACTS = {
     else { document.execCommand('copy'); done(); }
   },
   async writeReport(el) {
+    if (needNet()) return;
     el.disabled = true; el.textContent = 'Updating…';
     try {
       await call('writeReport', { sheets: buildReport() });
       toast('Season Stats and Game Log tabs updated');
-    } catch (err) { err.auth ? logout(err.message) : toast(err.message); }
+    } catch (err) { err.auth ? logout(err.message) : toast(errText(err)); }
     el.disabled = false; el.textContent = 'Update stats in Google Sheet';
   },
   closeModal() {
@@ -2244,6 +2482,19 @@ const ACTS = {
 };
 
 const FORMS = {
+  api(f) {
+    const url = f.elements.url.value.trim();
+    S.apiDraft = url;
+    if (!validApiUrl(url)) {
+      S.apiErr = 'That doesn\'t look like the team link. It starts with https://script.google.com/macros/s/ and ends with /exec.';
+      render(); return;
+    }
+    S.apiErr = ''; S.apiDraft = '';
+    if (url !== API_URL) store.del('gcs_home');
+    API_URL = url; store.set('gcs_api', url);
+    S.view = 'loading'; render();
+    return boot();
+  },
   player(f) {
     return coachSave('savePlayer', { id: f.elements.id.value, number: f.elements.number.value, name: f.elements.name.value, active: f.elements.active ? f.elements.active.checked : true });
   },
@@ -2304,6 +2555,7 @@ const FORMS = {
     if (!cur || !next) return say('Enter your current PIN and a new PIN.');
     if (!/^[1-9]\d{3,7}$/.test(next)) return say("PINs are 4 to 8 digits and can't start with 0.");
     if (next !== again) return say("The new PINs don't match.");
+    if (isOffline()) return say(NEED_NET);
     try {
       await call('changeCoachPin', { current: cur, next: next });
       // Stay signed in with the new PIN.
@@ -2313,7 +2565,7 @@ const FORMS = {
       toast('Coach PIN changed');
     } catch (e) {
       if (e.auth) return logout(e.message);
-      say(e.message);
+      say(errText(e));
     }
   },
   async oppRoster(f) {
@@ -2324,7 +2576,7 @@ const FORMS = {
       saveGameLocal();
       closeModal();
       render();
-    } catch (err) { modalErr(err.network ? 'No connection. Try again in a moment, or use TEAM for now.' : err.message); }
+    } catch (err) { modalErr(err.network ? NEED_NET + ' Use TEAM for now.' : err.message); }
   },
   whosHere(f) {
     const t = S.t;
@@ -2354,7 +2606,7 @@ document.addEventListener('click', ev => {
 document.addEventListener('change', ev => {
   const sel = ev.target.closest && ev.target.closest('select[data-oppsel]');
   if (!sel || !S.t) return;
-  if (sel.value === '__add') { S.t.oppSel = 'opp:team'; render(); oppRosterForm(); return; }
+  if (sel.value === '__add') { S.t.oppSel = 'opp:team'; render(); if (!needNet()) oppRosterForm(); return; }
   S.t.oppSel = sel.value;
   render();
 });
