@@ -84,7 +84,7 @@ Then, while on Wi-Fi:
 - **iPhone/iPad:** the link opens in Safari and shows *Almost done*. Tap **Share → Add to Home Screen → Add**, then open **Stats** from the Home Screen and enter your PIN.
 - **Android:** sign in, then **⋮ → Install app**.
 
-It's only needed once per device. If a device ever asks you to *paste your team's app link*, open the install link on it again (or paste the link that ends in `/exec`, from **⚙ Settings → App link**).
+It's only needed once per device. If a device ever asks you to *paste your team's app link*, open the install link on it again (or paste the link that ends in `/exec` from **⚙ Settings → App link**, or paste the whole invite message). School and work Google accounts give a longer link (`script.google.com/a/macros/<school>/s/…/exec`); both forms work.
 
 If you host the offline app somewhere other than this repository's GitHub Pages, change **⚙ Settings → Offline app → Where the offline app is hosted**.
 

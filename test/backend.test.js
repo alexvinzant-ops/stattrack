@@ -992,3 +992,11 @@ test('game-day email carries the install link once published', () => {
   assert.match(body, /No Wi-Fi at the gym\? Install the offline app/);
   assert.ok(body.indexOf('https://alexvinzant-ops.github.io/stattrack/?api=' + encodeURIComponent('https://script.google.com/macros/s/ABC/exec')) >= 0);
 });
+
+test('install link uses the short form of a school account link', () => {
+  const gas = createGas({ appUrl: 'https://script.google.com/a/macros/school.org/s/XYZ_1-a/exec' });
+  gas.context.setup();
+  const pin = gas.sheets.Settings.data.find(r => r[0] === 'Coach PIN')[1];
+  const all = gas.api({ pin, action: 'all' });
+  assert.equal(all.installUrl, 'https://alexvinzant-ops.github.io/stattrack/?api=' + encodeURIComponent('https://script.google.com/macros/s/XYZ_1-a/exec'));
+});

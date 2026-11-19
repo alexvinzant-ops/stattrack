@@ -793,8 +793,10 @@ function validOfflineBase_(u) {
  * published (only /exec links work for everyone).
  */
 function installLink_(s, appUrl) {
-  const url = appUrl === undefined ? savedAppUrl_() : appUrl;
-  if (!/\/exec$/.test(url || '')) return '';
+  let url = str_(appUrl === undefined ? savedAppUrl_() : appUrl);
+  if (!/\/exec$/.test(url)) return '';
+  // School/work accounts get script.google.com/a/macros/<school>/s/<id>/exec; the short form is the same app.
+  url = url.replace(/^https:\/\/script\.google\.com\/a\/macros\/[^\/]+\/s\//, 'https://script.google.com/macros/s/');
   return (s || getSettings_()).offlineApp + '?api=' + encodeURIComponent(url);
 }
 
