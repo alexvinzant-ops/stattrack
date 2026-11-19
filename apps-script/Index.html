@@ -326,17 +326,29 @@ function validApiUrl(u) {
   return location.hostname === 'localhost' && /^http:\/\/localhost(:\d+)?\/exec$/.test(u); // local testing only
 }
 let API_URL = PWA ? store.get('gcs_api', '') : '';
+// iPhone/iPad: a Home Screen app keeps its own storage, apart from Safari, and starts at the address
+// that was on screen when it was added. So the install link leaves the team link in the address
+// (and drops the manifest, whose start_url would drop it) until the app is opened from the icon.
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const STANDALONE = navigator.standalone === true || !!(window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+let INSTALL_HINT = false;
 if (PWA) {
-  // First open from the coach's link: remember the app link, then hide it from the address bar.
+  // Opened from an install link: remember the team's app link, then hide it from the address bar.
   try {
     const q = new URLSearchParams(location.search), a = q.get('api');
     if (a != null) {
-      if (validApiUrl(a)) {
-        if (a !== API_URL) store.del('gcs_home');
+      const ok = validApiUrl(a);
+      if (ok) {
+        if (a.trim() !== API_URL) store.del('gcs_home');
         API_URL = a.trim(); store.set('gcs_api', API_URL);
       }
-      q.delete('api');
-      history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q.toString() : '') + location.hash);
+      if (ok && IOS && !STANDALONE) {
+        INSTALL_HINT = true;
+        document.querySelectorAll('link[rel=manifest]').forEach(l => l.remove());
+      } else {
+        q.delete('api');
+        history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q.toString() : '') + location.hash);
+      }
     }
   } catch (e) { /* ignore */ }
   if (!validApiUrl(API_URL)) API_URL = '';
@@ -644,12 +656,13 @@ function render() {
   let html;
   if (v === 'loading') html = '<div class="loading">Loading…</div>';
   else if (v === 'setup') html = viewSetup();
+  else if (v === 'install') html = viewInstall();
   else if (v === 'login') html = viewLogin();
   else if (v === 'scorer') html = viewScorerHome();
   else if (v === 'coach') html = viewCoach();
   else if (v === 'player') html = viewPlayer();
   else if (v === 'game') html = viewGame();
-  if (S.offline && v !== 'login' && v !== 'setup' && v !== 'loading') html = offlineBanner() + html;
+  if (S.offline && v !== 'login' && v !== 'setup' && v !== 'install' && v !== 'loading') html = offlineBanner() + html;
   $('#app').innerHTML = html;
   updateSync();
 }
@@ -695,12 +708,28 @@ function viewLogin() {
     '</div>';
 }
 
+// iPhone/iPad in Safari, opened from an install link: show how to put it on the Home Screen.
+function viewInstall() {
+  const share = '<svg width="18" height="22" viewBox="0 0 18 22" aria-hidden="true" style="vertical-align:-4px"><path d="M9 1v13M4.5 5.5 9 1l4.5 4.5M5 9H2v12h14V9h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  return '<div class="login">' +
+    '<div class="logo">🏀</div>' +
+    '<h1>Almost done</h1><div class="muted">This device is connected to your team. Add the app to your Home Screen so it works with no Wi-Fi.</div>' +
+    '<ol class="help-steps" style="text-align:left;margin-top:18px">' +
+    '<li><b>Tap Share ' + share + '</b><span>At the bottom of Safari (top right on iPad).</span></li>' +
+    '<li><b>Tap “Add to Home Screen”</b><span>Scroll down the list if you don\'t see it. Then tap <b>Add</b>.</span></li>' +
+    '<li><b>Open “Stats” from your Home Screen</b><span>Enter your PIN there. You can close Safari.</span></li>' +
+    '</ol>' +
+    '<button class="btn" data-act="skipInstall" style="margin-top:8px">Not now, use it in Safari</button>' +
+    '</div>';
+}
+
 // First run of the installable app: it needs to know which team's server to talk to.
 function viewSetup() {
   return '<div class="login">' +
     '<div class="logo">🏀</div>' +
     '<h1>Team Stats</h1><div class="muted">Connect this device to your team</div>' +
     '<form data-form="api" style="margin-top:18px;text-align:left" autocomplete="off">' +
+    '<p class="muted small">Easiest: open the install link from your coach\'s invite on this device. Or paste the app link here.</p>' +
     '<label class="field">Paste your team\'s app link (from the coach\'s ⚙ Settings → App link)' +
     '<input name="url" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(S.apiDraft) + '"></label>' +
     '<div class="err" data-api-err>' + esc(S.apiErr) + '</div>' +
@@ -1496,6 +1525,21 @@ function viewSettings() {
     (d.appUrl ? '<div class="copybox"><input readonly value="' + esc(d.appUrl) + '" id="appUrl2"><button class="btn sm" type="button" data-act="copyUrl" data-input="appUrl2">Copy</button></div>' : '<p class="muted small">The link appears once the app is published.</p>') +
     '<p class="muted small" style="margin:8px 0 0">Parents\' PINs are on the Access tab: tap Edit on a person to change theirs.</p>' +
     '</div>' +
+    '<div class="section-title">Offline app (no Wi-Fi at the gym)</div><div class="card">' +
+    (d.installUrl
+      ? '<p class="small" style="margin:0 0 10px">Open this link <b>on the phone or tablet</b> you\'ll track on, while on Wi-Fi. It connects to your team by itself. On iPhone/iPad, then tap Share → <b>Add to Home Screen</b>.</p>' +
+        '<div class="invite-actions">' +
+        '<a class="btn primary" href="' + esc(d.installUrl) + '" target="_blank" rel="noopener">Open on this device</a>' +
+        '<button class="btn" type="button" data-act="emailInstall">Email it to me</button>' +
+        '<a class="btn" href="' + esc('sms:?&body=' + encodeURIComponent(d.installUrl)) + '" target="_blank" rel="noopener">Text it</a>' +
+        '</div>' +
+        '<div class="copybox" style="margin-top:10px"><input readonly value="' + esc(d.installUrl) + '" id="installUrl"><button class="btn sm" type="button" data-act="copyUrl" data-input="installUrl">Copy</button></div>' +
+        '<p class="muted small" style="margin:8px 0 0">Parents get this link in their invite and game-day email too.</p>'
+      : '<p class="muted small">The install link appears once the app is published (a link ending in /exec).</p>') +
+    '<details style="margin-top:10px"><summary class="muted small">Where the offline app is hosted</summary>' +
+    '<label class="field">Offline app address<input form="settingsForm" name="offlineApp" type="url" value="' + esc(st.offlineApp || '') + '" maxlength="200" autocapitalize="off" autocorrect="off" spellcheck="false"></label>' +
+    '<p class="muted small" style="margin:4px 0 0">The GitHub Pages address of the app\'s docs/ folder. Leave as is unless you host your own copy. Clear it to reset.</p></details>' +
+    '</div>' +
     '<div class="err" data-settings-err></div><button class="btn primary big" type="submit" form="settingsForm" style="margin-top:12px">Save settings</button>';
 }
 
@@ -1748,12 +1792,13 @@ function inviteText(p) {
   if (games.length) lines.push('You\'re keeping team stats for: ' + games.slice(0, 3).map(g => fmtDate(g.date) + ' ' + gameTitle(g)).join('; ') + (games.length > 3 ? ' (and more)' : '') + '.');
   if (players.length) lines.push('You can also keep your own record of ' + players.join(' & ') + ' at any game.');
   if (limited && tg.length) lines.push('You\'ll be entering: ' + tg.map(groupName).join(', ') + '.');
+  if (d.installUrl) lines.push('', 'No Wi-Fi at the gym? Open this on your phone while on Wi-Fi, then tap Share → Add to Home Screen. It works offline:', d.installUrl);
   lines.push('', 'How it works:', '1. Open the link and enter your PIN.',
     '2. Tap ' + (games.length ? '“Start tracking” on your game' : players.length ? '“Track ' + players.join(' & ') + '” on today\'s game' : 'your game') + '.',
     '3. Tap a player, then what happened (green = made, red = missed).',
     '4. Mistake? Tap Undo.',
     games.length ? '5. After the game: Box score → “Game over: submit final stats”.' : '5. That\'s it. Your numbers save automatically.',
-    '', 'Tip: tap Share → Add to Home Screen so it opens like an app.');
+    '', d.installUrl ? '' : 'Tip: tap Share → Add to Home Screen so it opens like an app.');
   return lines.join('\n').replace(/\n{3,}/g, '\n\n');
 }
 function inviteModal(p, sent) {
@@ -2077,6 +2122,7 @@ async function predownloadGames() {
 
 async function boot() {
   if (PWA && !API_URL) { S.view = 'setup'; render(); return; }
+  if (INSTALL_HINT) { INSTALL_HINT = false; S.view = 'install'; render(); return; }
   if (!S.pin) { S.view = 'login'; render(); return; }
   try {
     S.me = await call('me');
@@ -2196,6 +2242,16 @@ const ACTS = {
     render();
   },
   login: login,
+  skipInstall() { S.view = 'loading'; render(); boot(); },
+  async emailInstall() {
+    if (needNet()) return;
+    try {
+      const r = await call('emailInstallLink', {});
+      toast('Sent to ' + r.to);
+    } catch (err) {
+      if (err.auth) logout(err.message); else toast(errText(err));
+    }
+  },
   changeApi() {
     if (Queue.count() && !confirm(Queue.count() + ' plays have not been saved yet. They stay on this device, but will only upload to the team link you connect next. Change the link anyway?')) return;
     API_URL = ''; store.del('gcs_api'); store.del('gcs_home');
@@ -2545,7 +2601,7 @@ const FORMS = {
   settings(f) {
     const colorEl = f.elements.color;
     const color = colorEl ? (Array.from(colorEl).find(r => r.checked) || {}).value : '';
-    return coachSave('saveSettings', { foulOut: f.elements.foulOut.value, bonusFouls: f.elements.bonusFouls.value, timeouts: f.elements.timeouts.value, color: color || '', teamName: f.elements.teamName.value, season: f.elements.season.value, gameEmails: f.elements.gameEmails.checked, gameDayEmails: f.elements.gameDayEmails.checked, gameDayHour: Number(f.elements.gameDayHour.value), notifyEmail: f.elements.notifyEmail.value.trim() }).then(ok => ok && toast('Saved'));
+    return coachSave('saveSettings', { foulOut: f.elements.foulOut.value, bonusFouls: f.elements.bonusFouls.value, timeouts: f.elements.timeouts.value, color: color || '', teamName: f.elements.teamName.value, season: f.elements.season.value, gameEmails: f.elements.gameEmails.checked, gameDayEmails: f.elements.gameDayEmails.checked, gameDayHour: Number(f.elements.gameDayHour.value), notifyEmail: f.elements.notifyEmail.value.trim(), offlineApp: f.elements.offlineApp.value.trim() }).then(ok => ok && toast('Saved'));
   },
   async coachPin(f) {
     const err = $('[data-pin-err]');

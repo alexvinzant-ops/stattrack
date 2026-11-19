@@ -179,6 +179,43 @@ function isoDay(offset) { const d = new Date(); d.setDate(d.getDate() + offset);
     assert.equal(rg.box[ava.id].FG3M, 1, 'parent plays saved');
     await parent.screenshot({ path: path.join(shots, '14-parent-offline-done.png') });
 
+    // ---- One-tap install link (iPhone). The coach's ⚙ Settings shows it, built from the /exec link.
+    await api('saveSettings', { offlineApp: `${BASE}/pwa/` });
+    const install = `${BASE}/pwa/?api=${encodeURIComponent(BASE + '/exec')}`;
+    assert.equal((await api('all')).installUrl, install);
+    const { devices } = require('playwright');
+    const ictx = await browser.newContext({ ...devices['iPhone 13'], serviceWorkers: 'allow' });
+    const safari = await ictx.newPage();
+    safari.on('pageerror', e => errors.push(e.message));
+    await safari.goto(install);
+    // In Safari: install steps, the team link stays in the address (the Home Screen icon opens that
+    // address), and the manifest is dropped so its start_url can't replace it.
+    await safari.waitForSelector('text=Add to Home Screen');
+    assert.equal(safari.url(), install, 'team link kept in the address for Add to Home Screen');
+    assert.equal(await safari.evaluate(() => !!document.querySelector('link[rel=manifest]')), false, 'manifest removed');
+    await safari.screenshot({ path: path.join(shots, '15-ios-install.png') });
+    await safari.click('[data-act=skipInstall]');
+    await safari.waitForSelector('.keypad');
+    // Opened from the Home Screen icon: its own empty storage, same address. Connected with no pasting.
+    const hctx = await browser.newContext({ ...devices['iPhone 13'], serviceWorkers: 'allow' });
+    await hctx.addInitScript(() => { Object.defineProperty(navigator, 'standalone', { get: () => true }); });
+    const home = await hctx.newPage();
+    home.on('pageerror', e => errors.push(e.message));
+    await home.goto(install);
+    await home.waitForSelector('.keypad');
+    assert.equal(new URL(home.url()).search, '', 'link hidden once installed');
+    assert.equal(await home.evaluate(() => localStorage.getItem('gcs_api')), JSON.stringify(BASE + '/exec'));
+    for (const k of coachPin) await home.click(`.keypad [data-k="${k}"]`);
+    await home.click('[data-act=login]');
+    await home.waitForSelector('.tabs');
+    // Settings on this phone: the install card with the same link.
+    await home.click('.gear');
+    await home.waitForSelector('text=Offline app (no Wi-Fi at the gym)');
+    assert.equal(await home.getAttribute('a:has-text("Open on this device")', 'href'), install);
+    await home.locator('text=Offline app (no Wi-Fi at the gym)').scrollIntoViewIfNeeded();
+    await home.screenshot({ path: path.join(shots, '16-settings-install.png') });
+    await ictx.close(); await hctx.close();
+
     assert.deepEqual(errors, [], 'no page errors');
     console.log('offline.js: all checks passed');
   } finally {

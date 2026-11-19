@@ -942,3 +942,53 @@ test('doPost: JSON endpoint wraps api() for the offline app', () => {
   // Only actions in the table are reachable; names of other functions are not.
   for (const action of ['setup', 'doGet', 'constructor', '__proto__']) assert.equal(post({ action, pin: t.coachPin }).ok, false, action);
 });
+
+test('install link: built from the /exec link, coach-only, settable address', () => {
+  // Not published yet (the mock's default link is not an /exec link): no install link.
+  let t = setup();
+  assert.equal(t.coach('all').installUrl, '');
+  assert.throws(() => t.coach('emailInstallLink'), /Publish the app first/);
+
+  const gas = createGas({ appUrl: 'https://script.google.com/macros/s/ABC/exec' });
+  gas.context.setup();
+  const pin = gas.sheets.Settings.data.find(r => r[0] === 'Coach PIN')[1];
+  const coach = (action, data) => gas.api({ pin, action, data });
+  let all = coach('all');
+  assert.equal(all.settings.offlineApp, 'https://alexvinzant-ops.github.io/stattrack/');
+  assert.equal(all.installUrl, 'https://alexvinzant-ops.github.io/stattrack/?api=' + encodeURIComponent('https://script.google.com/macros/s/ABC/exec'));
+
+  // A parent never receives it (they get it inside their invite text instead).
+  all = coach('saveParent', { name: 'Pat Parent' });
+  const pat = all.parents[0];
+  const pall = gas.context.all_({ role: 'scorer', id: pat.id, perms: { viewStats: true } });
+  assert.equal(pall.installUrl, '');
+  assert.equal(pall.settings.offlineApp, undefined);
+
+  // Changing the address: a trailing slash is added; bad addresses are refused; blank resets.
+  all = coach('saveSettings', { offlineApp: 'https://coach.github.io/hoops' });
+  assert.equal(all.settings.offlineApp, 'https://coach.github.io/hoops/');
+  assert.match(all.installUrl, /^https:\/\/coach\.github\.io\/hoops\/\?api=https%3A%2F%2Fscript/);
+  assert.throws(() => coach('saveSettings', { offlineApp: 'http://evil.example/' }), /offline app address/);
+  assert.throws(() => coach('saveSettings', { offlineApp: 'https://x.io/?a=1' }), /offline app address/);
+  all = coach('saveSettings', { offlineApp: '' });
+  assert.equal(all.settings.offlineApp, 'https://alexvinzant-ops.github.io/stattrack/');
+  assert.throws(() => gas.api({ pin: pat.pin, action: 'saveSettings', data: { offlineApp: 'https://a.io/' } }), /coach/i);
+
+  // Email it to the coach.
+  coach('saveSettings', { notifyEmail: 'me@example.com' });
+  const r = coach('emailInstallLink');
+  assert.equal(r.to, 'me@example.com');
+  const m = gas.mails[gas.mails.length - 1];
+  assert.equal(m.to, 'me@example.com');
+  assert.ok(m.body.indexOf(all.installUrl) >= 0);
+  assert.match(m.body, /Add to Home Screen/);
+  assert.throws(() => gas.api({ pin: pat.pin, action: 'emailInstallLink' }), /coach/i);
+});
+
+test('game-day email carries the install link once published', () => {
+  const gas = createGas({ appUrl: 'https://script.google.com/macros/s/ABC/exec' });
+  gas.context.setup();
+  const body = gas.context.gameDayEmailText_({ location: 'home', opponent: 'Valley', date: '2026-11-19' }, { id: 'p1', name: 'Pat Parent', pin: '4321', perms: {} }, []).body;
+  assert.match(body, /No Wi-Fi at the gym\? Install the offline app/);
+  assert.ok(body.indexOf('https://alexvinzant-ops.github.io/stattrack/?api=' + encodeURIComponent('https://script.google.com/macros/s/ABC/exec')) >= 0);
+});

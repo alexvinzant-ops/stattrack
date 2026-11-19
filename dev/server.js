@@ -12,7 +12,7 @@ const { createGas } = require('./gas-mock');
 const PORT = Number(process.env.PORT || 8080);
 const LATENCY = Number(process.env.LATENCY || 0);
 const DATA = process.env.DATA_FILE || path.join(__dirname, '.data.json');
-const gas = createGas({ file: DATA, appUrl: 'http://localhost:' + PORT });
+const gas = createGas({ file: DATA, appUrl: 'http://localhost:' + PORT + '/exec' });
 gas.context.setup();
 
 const SHIM = `<script>
@@ -69,7 +69,7 @@ http.createServer((req, res) => {
     }, LATENCY));
     return;
   }
-  if (req.method === 'GET' && (req.url === '/' || req.url.startsWith('/?'))) {
+  if (req.method === 'GET' && (req.url === '/' || req.url.startsWith('/?') || req.url === '/exec' || req.url.startsWith('/exec?'))) {
     const html = fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Index.html'), 'utf8').replace('</head>', SHIM + '</head>');
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
