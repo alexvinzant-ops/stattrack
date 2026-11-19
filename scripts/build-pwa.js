@@ -15,7 +15,6 @@ const THEME = '#1c3d8c';
 const BACKGROUND = '#eef1f6';
 
 const HEAD_TAGS = [
-  '<link rel="manifest" href="manifest.webmanifest">',
   '<link rel="apple-touch-icon" href="apple-touch-icon.png">',
   '<meta name="apple-mobile-web-app-capable" content="yes">',
   '<meta name="mobile-web-app-capable" content="yes">',
@@ -24,10 +23,23 @@ const HEAD_TAGS = [
   '<meta name="theme-color" content="' + THEME + '">',
 ].join('\n');
 
-function buildIndex() {
+// pwa.config.json → "teamLink": this team's Apps Script link (ending in /exec). When set, the
+// offline app is connected to that team out of the box: people only type their PIN. Leave it ""
+// for a copy that any team can use (it then asks for the link, or takes it from an install link).
+function readConfig() {
+  const file = path.join(ROOT, 'pwa.config.json');
+  const cfg = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+  return { teamLink: String(cfg.teamLink || '').trim() };
+}
+const TEAM_LINK = /^(https:\/\/script\.google\.com\/(a\/macros\/[^\/\s?#"<>]+|macros)\/s\/[A-Za-z0-9_-]+\/exec|http:\/\/localhost(:\d+)?\/exec)$/;
+
+function buildIndex(cfg) {
+  cfg = cfg || readConfig();
+  if (cfg.teamLink && !TEAM_LINK.test(cfg.teamLink)) throw new Error('pwa.config.json: teamLink must be the Apps Script link that ends in /exec');
   const src = fs.readFileSync(path.join(ROOT, 'apps-script', 'Index.html'), 'utf8');
   if (src.split('</head>').length !== 2) throw new Error('Index.html must contain exactly one </head>');
-  return src.replace('</head>', HEAD_TAGS + '\n</head>');
+  const tags = HEAD_TAGS + (cfg.teamLink ? '\n<meta name="team-link" content="' + cfg.teamLink + '">' : '');
+  return src.replace('</head>', tags + '\n</head>');
 }
 
 // --- A tiny PNG encoder (node core only) and a basketball drawn with it -------------------------

@@ -73,6 +73,11 @@ The normal link needs internet to open. For gyms with no Wi-Fi, the same app is 
 
 After a minute the app is at **`https://<owner>.github.io/<repo>/`** (your GitHub name and this repository's name).
 
+### Build your team's link in (PIN only)
+Put your Apps Script link (the one ending in `/exec`, from **⚙ Settings → App link**) in [`pwa.config.json`](pwa.config.json) as `"teamLink"`, run `npm run build:pwa`, and commit. The offline app is then connected to your team out of the box: open the Pages address on any device, **Add to Home Screen**, and type your PIN. No link to paste, no install link needed.
+
+The link becomes visible in this public repository. It only opens the sign-in screen: stats, names, and settings still need a PIN, and repeated wrong PINs lock sign-in for 15 minutes. Leave `teamLink` empty for a copy other teams can share.
+
 ### Connecting a device (one tap)
 Open **⚙ Settings → Offline app** in the app. Your **install link** is there: the offline app's address with your team's app link built in.
 

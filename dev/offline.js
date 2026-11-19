@@ -232,6 +232,33 @@ function isoDay(offset) { const d = new Date(); d.setDate(d.getDate() + offset);
     await home.screenshot({ path: path.join(shots, '16-settings-install.png') });
     await ictx.close(); await hctx.close();
 
+    // ---- A copy built for one team (pwa.config.json teamLink): no link anywhere, just the PIN.
+    const builtPage = buildIndex({ teamLink: BASE + '/exec' });
+    const routeIndex = async c => c.route(u => /\/pwa\/(index\.html)?(\?.*)?$/.test(new URL(u).pathname + new URL(u).search), r => r.fulfill({ contentType: 'text/html; charset=utf-8', body: builtPage }));
+    const bctx = await browser.newContext({ ...devices['iPhone 13'], serviceWorkers: 'block' });
+    await routeIndex(bctx);
+    const bsafari = await bctx.newPage();
+    bsafari.on('pageerror', e => errors.push(e.message));
+    await bsafari.goto(`${BASE}/pwa/`);
+    await bsafari.waitForSelector('text=Add to Home Screen');
+    await bsafari.click('[data-act=skipInstall]');
+    await bsafari.waitForSelector('.keypad');
+    await bsafari.reload();
+    await bsafari.waitForSelector('.keypad'); // the steps show once
+    const bhctx = await browser.newContext({ ...devices['iPhone 13'], serviceWorkers: 'block' });
+    await routeIndex(bhctx);
+    await bhctx.addInitScript(() => { Object.defineProperty(navigator, 'standalone', { get: () => true }); });
+    const bhome = await bhctx.newPage();
+    bhome.on('pageerror', e => errors.push(e.message));
+    await bhome.goto(`${BASE}/pwa/`);
+    await bhome.waitForSelector('.keypad');
+    assert.equal(await bhome.evaluate(() => !!document.querySelector('link[rel=manifest]')), true, 'manifest linked');
+    for (const k of coachPin) await bhome.click(`.keypad [data-k="${k}"]`);
+    await bhome.click('[data-act=login]');
+    await bhome.waitForSelector('.tabs');
+    await bhome.screenshot({ path: path.join(shots, '17-built-in-team.png') });
+    await bctx.close(); await bhctx.close();
+
     assert.deepEqual(errors, [], 'no page errors');
     console.log('offline.js: all checks passed');
   } finally {

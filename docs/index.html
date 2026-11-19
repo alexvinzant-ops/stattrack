@@ -293,7 +293,6 @@ label.check span .muted, label.check.choice span .muted { display: block; font-w
 .copybox input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
 .pin { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 800; letter-spacing: .12em; background: #eef2f8; padding: 2px 8px; border-radius: 6px; }
 </style>
-<link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -340,7 +339,8 @@ function apiUrlFrom(u) {
 let API_URL = PWA ? store.get('gcs_api', '') : '';
 // iPhone/iPad: a Home Screen app keeps its own storage, apart from Safari, and starts at the address
 // that was on screen when it was added. So the install link leaves the team link in the address
-// (and drops the manifest, whose start_url would drop it) until the app is opened from the icon.
+// (and the page gets no manifest, whose start_url would drop it) until the app is opened from the icon.
+// A copy built for one team (pwa.config.json) has the team link built in, so none of that matters.
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const STANDALONE = navigator.standalone === true || !!(window.matchMedia && matchMedia('(display-mode: standalone)').matches);
 let INSTALL_HINT = false;
@@ -356,7 +356,6 @@ if (PWA) {
       }
       if (ok && IOS && !STANDALONE) {
         INSTALL_HINT = true;
-        document.querySelectorAll('link[rel=manifest]').forEach(l => l.remove());
       } else {
         q.delete('api');
         history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q.toString() : '') + location.hash);
@@ -364,6 +363,15 @@ if (PWA) {
     }
   } catch (e) { /* ignore */ }
   API_URL = apiUrlFrom(API_URL);
+  const builtIn = apiUrlFrom((document.querySelector('meta[name=team-link]') || {}).content);
+  if (!API_URL && builtIn) { API_URL = builtIn; store.set('gcs_api', API_URL); }
+  if (builtIn && IOS && !STANDALONE && API_URL === builtIn && !store.get('gcs_install_seen', false)) INSTALL_HINT = true;
+  // Added here, not in the page, so Safari never sees it when the address must be kept (see above).
+  if (!(INSTALL_HINT && !builtIn)) {
+    const m = document.createElement('link');
+    m.rel = 'manifest'; m.href = 'manifest.webmanifest';
+    document.head.appendChild(m);
+  }
   if ('serviceWorker' in navigator) window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
   // Ask the browser not to clear what is saved on this device (plays waiting to upload, offline games).
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
@@ -2254,7 +2262,7 @@ const ACTS = {
     render();
   },
   login: login,
-  skipInstall() { S.view = 'loading'; render(); boot(); },
+  skipInstall() { store.set('gcs_install_seen', true); S.view = 'loading'; render(); boot(); },
   async emailInstall() {
     if (needNet()) return;
     try {
