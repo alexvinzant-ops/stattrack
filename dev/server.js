@@ -8,6 +8,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { createGas } = require('./gas-mock');
+const { buildIndex } = require('../scripts/build-pwa');
 
 const PORT = Number(process.env.PORT || 8080);
 const LATENCY = Number(process.env.LATENCY || 0);
@@ -44,6 +45,9 @@ http.createServer((req, res) => {
     const file = path.join(DOCS, rel);
     if (!file.startsWith(DOCS + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    // The page is the shared copy (no built-in team link), so it talks to this server. Set
+    // PWA_TEAM_LINK to try a copy built for one team.
+    if (rel === 'index.html') { res.end(buildIndex({ teamLink: process.env.PWA_TEAM_LINK || '' })); return; }
     res.end(fs.readFileSync(file));
     return;
   }
